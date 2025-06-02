@@ -197,7 +197,7 @@ async def price_command(update: Update, context: CallbackContext):
 
     # Now define the price list after registration check
     price_list = """
-<b>🇧🇷 Pack List phazil:</b>
+<b>Pack List php:</b>
 
        BONUS PACK 
     11 - diamond 11
@@ -711,17 +711,17 @@ async def query_point_command(update: Update, context: CallbackContext):
 
 # order ph
 product_info = {
-    "11": {"id": "212", "rate": 10.00},
-    "22": {"id": "213", "rate": 20.00},
-    "56": {"id": "214", "rate": 50.90},
-    "112": {"id": "215", "rate": 100.00},
-    "223": {"id": "216", "rate": 200.00},
+    "11": {"id": "212", "rate": 9.50},
+    "22": {"id": "213", "rate": 19.00},
+    "56": {"id": "214", "rate": 47.90},
+    "112": {"id": "215", "rate": 95.00},
+    "223": {"id": "216", "rate": 190.00},
     
-    "336": {"id": "217", "rate": 300.00},   
-    "570": {"id": "218", "rate": 500.00},   
-    "1163": {"id": "219", "rate": 1000.00},   
-    "2398": {"id": "220", "rate": 2000.00},   
-    "6042": {"id": "221", "rate": 5000.00},   
+    "336": {"id": "217", "rate": 285.00},   
+    "570": {"id": "218", "rate": 475.00},   
+    "1163": {"id": "219", "rate": 950.00},   
+    "2398": {"id": "220", "rate": 1900.00},   
+    "6042": {"id": "221", "rate": 4750.00},   
     "wdp": {"id": "16641", "rate": 95.00},   
     
     
