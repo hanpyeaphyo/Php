@@ -211,6 +211,7 @@ async def price_command(update: Update, context: CallbackContext):
     2398 - diamond 2398
     6042 - diamond 6042
     wdp - diamond 95
+    gp -diamond 475
 အိုင်ဒီ မှားလျှင် Dia amount မှားလျှင် တာဝန်မယူ
 """
     await update.message.reply_text(price_list, parse_mode='HTML')
