@@ -140,7 +140,7 @@ async def help_command(update: Update, context: CallbackContext):
         return
 
     help_message = f"""
-<b>HELLO</b> {username} 🤖  
+<b>HELLO</b> {username} 🤖
 
 Please Contact admin ☺️
 @minhtet4604
@@ -460,15 +460,17 @@ async def get_users_command(update: Update, context: CallbackContext):
         user_id = user.get('user_id', 'N/A')
         balance_ph = user.get('balance_ph', 0)
         balance_br = user.get('balance_br', 0)
-        date_joined = datetime.fromtimestamp(
-            user.get('date_joined', 0)).strftime('%Y-%m-%d %I:%M:%S %p') # 12-hour format
+        # Format date joined to 12-hour format
+        date_joined_timestamp = user.get('date_joined', 0)
+        date_joined_formatted = datetime.fromtimestamp(date_joined_timestamp).strftime('%Y-%m-%d %I:%M:%S %p') if date_joined_timestamp != 0 else 'N/A'
+
 
         # Enhance the output with clear formatting
         response_summary += (
             f"🆔 USER ID: {user_id}\n"
             f" PH BALANCE : ${balance_ph:.2f}\n"
             f" BR BALANCE : ${balance_br:.2f}\n"
-            f"📅 DATE JOINED: {date_joined}\n"
+            f"📅 DATE JOINED: {date_joined_formatted}\n" # Use 12-hour formatted date
             "---------------------------------\n"  # Separator for better readability
         )
 
@@ -503,34 +505,26 @@ async def get_user_orders(update: Update, context: CallbackContext):
         zone_id = order.get('zone_id', 'N/A')
         pack = order.get('product_name', 'N/A')
         order_ids = order.get('order_ids', 'N/A')
-        # Assume date is stored as string, re-format if necessary
+        # Retrieve and format date to 12-hour format if available
         date_str = order.get('date', 'N/A')
-        # Attempt to parse and re-format date to include time and AM/PM if it's not 'N/A'
         formatted_date = date_str
-        try:
-            # Assuming date_str is in '%Y-%m-%d' format or similar, this might need adjustment
-            # If date is stored as timestamp or datetime object, retrieve it differently
-            if date_str != 'N/A':
-                 # This is a placeholder, you might need to adjust how you retrieve and format the date
-                 # If 'date' in DB is a datetime object, retrieve it as such:
-                 # order_date = order.get('date')
-                 # if isinstance(order_date, datetime):
-                 #     formatted_date = order_date.strftime('%Y-%m-%d %I:%M:%S %p')
-                 # else:
-                 #     # If it's a string like 'YYYY-MM-DD', you might add a placeholder time or try parsing
-                 #     try:
-                 #         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                 #         formatted_date = date_obj.strftime('%Y-%m-%d') # Keep just date if no time info
-                 #     except ValueError:
-                 #         pass # Keep original string if parsing fails
+        if date_str != 'N/A':
+            try:
+                # Attempt to parse the stored date string. Adjust format string if necessary.
+                # Assuming the date is stored in a format that includes time, like 'YYYY-MM-DD HH:MM:SS AM/PM'
+                # If the date is stored in a different format, you'll need to change the strptime format.
+                # If it's stored as a datetime object, retrieve it directly and format.
+                order_date_obj = datetime.strptime(date_str, '%Y-%m-%d %I:%M:%S %p')
+                formatted_date = order_date_obj.strftime('%Y-%m-%d %I:%M:%S %p') # Re-format to ensure consistency
+            except ValueError:
+                # If parsing fails, maybe the stored date doesn't include time or is in a different format
+                # In this case, keep the original string or format just the date part.
+                try:
+                     date_obj_only = datetime.strptime(date_str.split(' ')[0], '%Y-%m-%d')
+                     formatted_date = date_obj_only.strftime('%Y-%m-%d') # Format date only
+                except ValueError:
+                     pass # Keep original string if date-only parsing also fails
 
-                 # For consistency with other time displays, if the date doesn't include time,
-                 # maybe just show the date, or indicate time isn't available for this entry.
-                 # Keeping it as date_str for now unless the database format is known.
-                 pass # Keep the original format from DB for now
-        except Exception as e:
-            logger.error(f"Error formatting date in get_user_orders: {e}")
-            pass # Keep original string if error
 
         total_cost = order.get('total_cost', 0.0)
         status = order.get('status', 'N/A')
@@ -584,34 +578,26 @@ async def get_all_orders(update: Update, context: CallbackContext):
             zone_id = order.get('zone_id', 'N/A')
             product_name = order.get('product_name', 'N/A')
             order_ids = order.get('order_ids', 'N/A')
-            # Assume date is stored as string, re-format if necessary
+             # Retrieve and format date to 12-hour format if available
             date_str = order.get('date', 'N/A')
-             # Attempt to parse and re-format date to include time and AM/PM if it's not 'N/A'
             formatted_date = date_str
-            try:
-                # Assuming date_str is in '%Y-%m-%d' format or similar, this might need adjustment
-                # If date is stored as timestamp or datetime object, retrieve it differently
-                if date_str != 'N/A':
-                    # This is a placeholder, you might need to adjust how you retrieve and format the date
-                    # If 'date' in DB is a datetime object, retrieve it as such:
-                    # order_date = order.get('date')
-                    # if isinstance(order_date, datetime):
-                    #     formatted_date = order_date.strftime('%Y-%m-%d %I:%M:%S %p')
-                    # else:
-                    #     # If it's a string like 'YYYY-MM-DD', you might add a placeholder time or try parsing
-                    #     try:
-                    #         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                    #         formatted_date = date_obj.strftime('%Y-%m-%d') # Keep just date if no time info
-                    #     except ValueError:
-                    #         pass # Keep original string if parsing fails
+            if date_str != 'N/A':
+                try:
+                    # Attempt to parse the stored date string. Adjust format string if necessary.
+                    # Assuming the date is stored in a format that includes time, like 'YYYY-MM-DD HH:MM:SS AM/PM'
+                    # If the date is stored in a different format, you'll need to change the strptime format.
+                    # If it's stored as a datetime object, retrieve it directly and format.
+                    order_date_obj = datetime.strptime(date_str, '%Y-%m-%d %I:%M:%S %p')
+                    formatted_date = order_date_obj.strftime('%Y-%m-%d %I:%M:%S %p') # Re-format to ensure consistency
+                except ValueError:
+                    # If parsing fails, maybe the stored date doesn't include time or is in a different format
+                    # In this case, keep the original string or format just the date part.
+                    try:
+                        date_only_obj = datetime.strptime(date_str.split(' ')[0], '%Y-%m-%d')
+                        formatted_date = date_only_obj.strftime('%Y-%m-%d') # Format date only
+                    except ValueError:
+                         pass # Keep original string if date-only parsing also fails
 
-                    # For consistency with other time displays, if the date doesn't include time,
-                    # maybe just show the date, or indicate time isn't available for this entry.
-                    # Keeping it as date_str for now unless the database format is known.
-                    pass # Keep the original format from DB for now
-            except Exception as e:
-                logger.error(f"Error formatting date in get_all_orders: {e}")
-                pass # Keep original string if error
 
             total_cost = order.get('total_cost', 0.0)
             status = order.get('status', 'N/A')
@@ -1014,7 +1000,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
                 "username": username,
                 "product_name": order['product_name'],
                 "order_ids": order_ids,
-                "date": datetime.now().strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
+                "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
                 "total_cost": order['product_rate'],
                 "status": "success"
             })
