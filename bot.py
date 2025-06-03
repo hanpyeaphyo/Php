@@ -198,15 +198,46 @@ async def price_command(update: Update, context: CallbackContext):
     wdp - diamond 95
 
 <b>🇧🇷 Brazil:</b>
-    svp: \$39.00
-    55: \$39.00
-    165: \$116.90
-    275: \$187.50
-    565: \$385.00
-    wkp: \$76.00
-    twilight: \$402.50
-
-For more details, contact admin."""
+    - svp: $39.00
+    - 55: $39.00
+    - 165: $116.90
+    - 275: $187.50
+    - 565: $385.00
+    
+      NORMAL PACK
+    
+    - wkp: $76.00
+    - wkp2: $152.00
+    - wkp3: $228.00
+    - wkp4: $304.00
+    - wkp5: $380.00
+    - wkp10: $760.00
+    - twilight: $402.50
+    - 86: $61.50
+    - 172: $122.00
+    - 257: $177.50
+    - 343: $239.00
+    - 344: $244.00
+    - 429: $299.50
+    - 514: $355.00
+    - 600: $416.50
+    - 706: $480.00
+    - 792: $541.50
+    - 878: $602.00
+    - 963: $657.50
+    - 1049: $719.00
+    - 1135: $779.50
+    - 1220: $835.00
+    - 1412: $960.00
+    - 1584: $1082.00
+    - 1755: $1199.00
+    - 2195: $1453.00
+    - 2901: $1940.00
+    - 3688: $2424.00
+    - 4390: $2906.00
+    - 5532: $3660.00
+    - 9288: $6079.00
+    - 11483: $7532.00"""
     await update.message.reply_text(price_list, parse_mode='HTML')
 
 
@@ -927,7 +958,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
 
     # Prepare response summary
     response_summary = f"======{region.upper()} Order Summary======\n"
-    current_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %H:%M:%S')  # Myanmar time
+    current_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p')  # Myanmar time in 12-hour format with AM/PM
     for detail in order_summary:
         order_ids_str = ', '.join(detail["order_ids"])
         response_summary += (
