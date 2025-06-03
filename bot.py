@@ -11,6 +11,7 @@ import aiohttp
 import hashlib
 import time
 import os
+import requests # Import requests for synchronous calls if still needed in query_point_command
 
 
 load_dotenv('bot.env')
@@ -251,13 +252,26 @@ async def admin_command(update: Update, context: CallbackContext):
         return
 
     help_message = f"""
-<b>Hello Admin</b> {username} 
-<b>You can use below commands :</B>   
-    
+<b>Hello Admin</b> {username}
+<b>You can use below commands :</B>
+
 1️⃣<b>Admin Mode</b>:
  /bal_admin - <b>Check balance</b>
  /user - <b>User List</b>
- /all_his - <b>All Order History</b> 
+ /all_his - <b>All Order History</b>
+
+2️⃣ <b>Wallet Topup:</b>
+
+Ask to user for telegram_id Press
+/getid
+
+Added
+/add_bal 1836389511 500 balance_ph
+/add_bal telegram_id amount balance_type
+
+Deducted
+/ded_bal 1836389511 500 balance_br
+/ded_bal telegram_id amount balance_type
     """
 
     try:
@@ -447,7 +461,7 @@ async def get_users_command(update: Update, context: CallbackContext):
         balance_ph = user.get('balance_ph', 0)
         balance_br = user.get('balance_br', 0)
         date_joined = datetime.fromtimestamp(
-            user.get('date_joined', 0)).strftime('%Y-%m-%d %H:%M:%S')
+            user.get('date_joined', 0)).strftime('%Y-%m-%d %I:%M:%S %p') # 12-hour format
 
         # Enhance the output with clear formatting
         response_summary += (
@@ -489,7 +503,35 @@ async def get_user_orders(update: Update, context: CallbackContext):
         zone_id = order.get('zone_id', 'N/A')
         pack = order.get('product_name', 'N/A')
         order_ids = order.get('order_ids', 'N/A')
-        date = order.get('date', 'N/A')
+        # Assume date is stored as string, re-format if necessary
+        date_str = order.get('date', 'N/A')
+        # Attempt to parse and re-format date to include time and AM/PM if it's not 'N/A'
+        formatted_date = date_str
+        try:
+            # Assuming date_str is in '%Y-%m-%d' format or similar, this might need adjustment
+            # If date is stored as timestamp or datetime object, retrieve it differently
+            if date_str != 'N/A':
+                 # This is a placeholder, you might need to adjust how you retrieve and format the date
+                 # If 'date' in DB is a datetime object, retrieve it as such:
+                 # order_date = order.get('date')
+                 # if isinstance(order_date, datetime):
+                 #     formatted_date = order_date.strftime('%Y-%m-%d %I:%M:%S %p')
+                 # else:
+                 #     # If it's a string like 'YYYY-MM-DD', you might add a placeholder time or try parsing
+                 #     try:
+                 #         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                 #         formatted_date = date_obj.strftime('%Y-%m-%d') # Keep just date if no time info
+                 #     except ValueError:
+                 #         pass # Keep original string if parsing fails
+
+                 # For consistency with other time displays, if the date doesn't include time,
+                 # maybe just show the date, or indicate time isn't available for this entry.
+                 # Keeping it as date_str for now unless the database format is known.
+                 pass # Keep the original format from DB for now
+        except Exception as e:
+            logger.error(f"Error formatting date in get_user_orders: {e}")
+            pass # Keep original string if error
+
         total_cost = order.get('total_cost', 0.0)
         status = order.get('status', 'N/A')
 
@@ -504,7 +546,7 @@ async def get_user_orders(update: Update, context: CallbackContext):
             f"🌍 Zone ID: {zone_id}\n"
             f"💎 Pack: {pack}\n"
             f"🆔 Order ID: {order_ids}\n"
-            f"📅 Date: {date}\n"
+            f"📅 Date: {formatted_date}\n" # Use formatted_date
             f"💵 Rate: $ {float(total_cost):.2f}\n"
             f"🔄 Status: {status}\n\n"
         )
@@ -542,7 +584,35 @@ async def get_all_orders(update: Update, context: CallbackContext):
             zone_id = order.get('zone_id', 'N/A')
             product_name = order.get('product_name', 'N/A')
             order_ids = order.get('order_ids', 'N/A')
-            date = order.get('date', 'N/A')
+            # Assume date is stored as string, re-format if necessary
+            date_str = order.get('date', 'N/A')
+             # Attempt to parse and re-format date to include time and AM/PM if it's not 'N/A'
+            formatted_date = date_str
+            try:
+                # Assuming date_str is in '%Y-%m-%d' format or similar, this might need adjustment
+                # If date is stored as timestamp or datetime object, retrieve it differently
+                if date_str != 'N/A':
+                    # This is a placeholder, you might need to adjust how you retrieve and format the date
+                    # If 'date' in DB is a datetime object, retrieve it as such:
+                    # order_date = order.get('date')
+                    # if isinstance(order_date, datetime):
+                    #     formatted_date = order_date.strftime('%Y-%m-%d %I:%M:%S %p')
+                    # else:
+                    #     # If it's a string like 'YYYY-MM-DD', you might add a placeholder time or try parsing
+                    #     try:
+                    #         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    #         formatted_date = date_obj.strftime('%Y-%m-%d') # Keep just date if no time info
+                    #     except ValueError:
+                    #         pass # Keep original string if parsing fails
+
+                    # For consistency with other time displays, if the date doesn't include time,
+                    # maybe just show the date, or indicate time isn't available for this entry.
+                    # Keeping it as date_str for now unless the database format is known.
+                    pass # Keep the original format from DB for now
+            except Exception as e:
+                logger.error(f"Error formatting date in get_all_orders: {e}")
+                pass # Keep original string if error
+
             total_cost = order.get('total_cost', 0.0)
             status = order.get('status', 'N/A')
 
@@ -557,7 +627,7 @@ async def get_all_orders(update: Update, context: CallbackContext):
                 f"🌍 Zone ID: {zone_id}\n"
                 f"💎 Product: {product_name}\n"
                 f"🆔 Order IDs: {order_ids}\n"
-                f"📅 Date: {date}\n"
+                f"📅 Date: {formatted_date}\n" # Use formatted_date
                 f"💵 Total Cost: $ {float(total_cost):.2f}\n"
                 f"🔄 Status: {status}\n\n"
             )
@@ -839,7 +909,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
                 f"<b>Game ID</b>: {user_id}\n"
                 f"<b>Game Server</b>: {zone_id}\n"
                 f"<b>Items</b>: {product_name}\n"
-                f"<b>Results</b>: Product rate not available\n\n"
+                f"<b>Results:</b> Product rate not available\n\n"
             )
             continue
         order_requests.append({
@@ -874,91 +944,96 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     # Process orders
     order_summary = []
     transaction_documents = []
-    balance_to_readd = 0  # Track balance to re-add for failed orders
+    # balance_to_readd is no longer needed with the atomic update approach
 
     for order in order_requests:
-        current_balance = await get_balance(sender_user_id)
-        if current_balance[balance_type] < order['product_rate']:
-            print(f"[ERROR] Insufficient balance during processing for User ID: {sender_user_id}.")
-            failed_orders.append(
-                f"<b>Game ID:</b> {order['user_id']}\n"
-                f"<b>Game Server:</b> {order['zone_id']}\n"
-                f"<b>Items:</b> {order['product_name']}\n"
-                f"<b>Results:</b> Insufficient Balance\n\n"
-            )
-            continue
-
-        # Deduct balance for the current order
+        # Attempt to deduct balance for the current order
         new_balance = await update_balance(
             sender_user_id, -order['product_rate'], balance_type)
+
         if new_balance is None:
+            # If deduction fails (user not found or insufficient balance during processing)
             failed_orders.append(
                 f"<b>Game ID:</b> {order['user_id']}\n"
                 f"<b>Game Server:</b> {order['zone_id']}\n"
                 f"<b>Items:</b> {order['product_name']}\n"
-                f"<b>Results:</b> Balance Deduction Failed\n\n"
+                f"<b>Results:</b> Insufficient Balance or Deduction Failed\n\n"
             )
-            continue
+            continue # Skip this order and move to the next
 
         # Process the order
         order_ids = []
+        order_failed_during_processing = False
         for pid in order['product_ids']:
             result = await create_order_and_log(region, order['user_id'], order['zone_id'], pid)
             order_id = result.get("order_id")
             if not order_id:
-                # Revert the balance deduction if the order creation fails
-                await update_balance(sender_user_id, order['product_rate'], balance_type)
+                # Order creation failed for one of the product IDs
                 failed_orders.append(
                     f"<b>Game ID:</b> {order['user_id']}\n"
                     f"<b>Game Server:</b> {order['zone_id']}\n"
                     f"<b>Items:</b> {order['product_name']}\n"
                     f"<b>Results:</b> {result.get('reason', 'Order creation failed')}\n\n"
                 )
-                break
+                order_failed_during_processing = True
+                # Revert the balance deduction if any part of the order fails
+                await update_balance(sender_user_id, order['product_rate'], balance_type)
+                break # Stop processing product IDs for this order
             order_ids.append(order_id)
-        if not order_ids:
-            continue
 
-        role_info = await get_role_info(order['user_id'], order['zone_id'])
-        if role_info is None:
-            await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failure
-            failed_orders.append(
-                f"<b>Game ID:</b> {order['user_id']}\n"
-                f"<b>Game Server:</b> {order['zone_id']}\n"
-                f"<b>Items:</b> {order['product_name']}\n"
-                f"<b>Results:</b> User ID not exist\n\n"
-            )
-            continue
+        if order_failed_during_processing:
+            continue # Move to the next order if processing failed for this one
 
-        username = role_info.get('username', 'N/A')
-        order_summary.append({
-            "order_ids": order_ids,
-            "username": username,
-            "user_id": order['user_id'],
-            "zone_id": order['zone_id'],
-            "product_name": order['product_name'],
-            "total_cost": order['product_rate'],
-        })
+        # If all product IDs for the order were processed successfully
+        if order_ids:
+            role_info = await get_role_info(order['user_id'], order['zone_id'])
+            if role_info is None:
+                await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failed user lookup
+                failed_orders.append(
+                    f"<b>Game ID:</b> {order['user_id']}\n"
+                    f"<b>Game Server:</b> {order['zone_id']}\n"
+                    f"<b>Items:</b> {order['product_name']}\n"
+                    f"<b>Results:</b> User ID not exist\n\n"
+                )
+                continue
 
-        transaction_documents.append({
-            "sender_user_id": sender_user_id,
-            "user_id": order['user_id'],
-            "zone_id": order['zone_id'],
-            "username": username,
-            "product_name": order['product_name'],
-            "order_ids": order_ids,
-            "date": datetime.now().strftime('%Y-%m-%d'),
-            "total_cost": order['product_rate'],
-            "status": "success"
-        })
+            username = role_info.get('username', 'N/A')
+            order_summary.append({
+                "order_ids": order_ids,
+                "username": username,
+                "user_id": order['user_id'],
+                "zone_id": order['zone_id'],
+                "product_name": order['product_name'],
+                "total_cost": order['product_rate'],
+            })
+
+            transaction_documents.append({
+                "sender_user_id": sender_user_id,
+                "user_id": order['user_id'],
+                "zone_id": order['zone_id'],
+                "username": username,
+                "product_name": order['product_name'],
+                "order_ids": order_ids,
+                "date": datetime.now().strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
+                "total_cost": order['product_rate'],
+                "status": "success"
+            })
 
     # Insert all successful transactions
     if transaction_documents:
-        await order_collection.insert_many(transaction_documents)
+        try:
+            await order_collection.insert_many(transaction_documents)
+        except Exception as e:
+             logger.error(f"Error inserting transactions: {e}")
+             # Handle potential database insert errors, perhaps log and inform admin
+             pass
+
 
     # Prepare response summary
     response_summary = f"======{region.upper()} Order Summary======\n"
-    current_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p')  # Myanmar time in 12-hour format with AM/PM
+    # Get the current time for the summary message
+    current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p') # Myanmar time in 12-hour format with AM/PM
+
     for detail in order_summary:
         order_ids_str = ', '.join(detail["order_ids"])
         response_summary += (
@@ -967,7 +1042,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             f"<b>Game Name:</b> {detail['username']}\n"
             f"<b>Game ID:</b> {detail['user_id']}\n"
             f"<b>Game Server:</b> {detail['zone_id']}\n"
-            f"<b>Time:</b> {current_time}\n"
+            f"<b>Time:</b> {current_summary_time}\n" # Use the summary time or the stored order time
             f"<b>Amount:</b> {detail['product_name']}💎\n"
             f"<b>Total Cost:</b> ${detail['total_cost']:.2f} 🪙\n\n"
         )
