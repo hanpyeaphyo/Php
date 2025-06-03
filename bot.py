@@ -36,13 +36,6 @@ KEY = os.getenv('KEY')
 DEFAULT_PRODUCT_ID: Final = "213"
 admins = [5671920054, 1836389511, 7135882496]
 
-# Debug print to check if environment variables are loading correctly
-print(f"DB_USERNAME: {username}")
-print(f"DB_PASSWORD: {password}")
-print(f"UID: {UID}")
-print(f"EMAIL: {EMAIL}")
-print(f"KEY: {KEY}")
-
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -205,48 +198,15 @@ async def price_command(update: Update, context: CallbackContext):
     wdp - diamond 95
 
 <b>🇧🇷 Brazil:</b>
-    BONUS PACK 
-    - svp: $39.00
-    - 55: $39.00
-    - 165: $116.90
-    - 275: $187.50
-    - 565: $385.00
-    
-      NORMAL PACK
-    
-    - wkp: $76.00
-    - wkp2: $152.00
-    - wkp3: $228.00
-    - wkp4: $304.00
-    - wkp5: $380.00
-    - wkp10: $760.00
-    - twilight: $402.50
-    - 86: $61.50
-    - 172: $122.00
-    - 257: $177.50
-    - 343: $239.00
-    - 344: $244.00
-    - 429: $299.50
-    - 514: $355.00
-    - 600: $416.50
-    - 706: $480.00
-    - 792: $541.50
-    - 878: $602.00
-    - 963: $657.50
-    - 1049: $719.00
-    - 1135: $779.50
-    - 1220: $835.00
-    - 1412: $960.00
-    - 1584: $1082.00
-    - 1755: $1199.00
-    - 2195: $1453.00
-    - 2901: $1940.00
-    - 3688: $2424.00
-    - 4390: $2906.00
-    - 5532: $3660.00
-    - 9288: $6079.00
-    - 11483: $7532.00
-"""
+    svp: \$39.00
+    55: \$39.00
+    165: \$116.90
+    275: \$187.50
+    565: \$385.00
+    wkp: \$76.00
+    twilight: \$402.50
+
+For more details, contact admin."""
     await update.message.reply_text(price_list, parse_mode='HTML')
 
 
@@ -660,8 +620,7 @@ async def query_point_command(update: Update, context: CallbackContext):
         await update.message.reply_text('Unauthorized access.')
         return
 
-    def get_query_points_ph():
-        endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/querypoints"
+    async def get_query_points(endpoint: str, region: str):
         current_time = int(time.time())
         params = {
             'uid': UID,
@@ -670,54 +629,37 @@ async def query_point_command(update: Update, context: CallbackContext):
             'time': current_time
         }
         params['sign'] = calculate_sign(params)
-        try:
-            response = requests.post(endpoint, data=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            logger.error(f"Error fetching PH points: {e}")
-            return None
 
-    def get_query_points_br():
-        endpoint = f"{SMILE_ONE_BASE_URL_BR}/smilecoin/api/querypoints"
-        current_time = int(time.time())
-        params = {
-            'uid': UID,
-            'email': EMAIL,
-            'product': 'mobilelegends',
-            'time': current_time
-        }
-        params['sign'] = calculate_sign(params)
-        try:
-            response = requests.post(endpoint, data=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            logger.error(f"Error fetching BR points: {e}")
-            return None
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(endpoint, data=params) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except aiohttp.ClientError as e:
+                logger.error(f"Error fetching {region} points: {e}")
+                return None
 
-    try:
-        # Fetch Smile Points
-        response_ph = get_query_points_ph()
-        response_br = get_query_points_br()
+    # Define the endpoints
+    endpoint_ph = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/querypoints"
+    endpoint_br = f"{SMILE_ONE_BASE_URL_BR}/smilecoin/api/querypoints"
 
-        # Extract points
-        points_ph = response_ph.get('smile_points', 'Unavailable') if response_ph else 'Unavailable'
-        points_br = response_br.get('smile_points', 'Unavailable') if response_br else 'Unavailable'
+    # Fetch Smile Points asynchronously
+    response_ph = await get_query_points(endpoint_ph, "PH")
+    response_br = await get_query_points(endpoint_br, "BR")
 
-        # Format response
-        response_message = (
-            f"<b>ADMIN BALANCE</b>:\n\n"
-            f"🇵🇭 <b>Smile One PH</b>: {points_ph}\n"
-            f"🇧🇷 <b>Smile One BR</b>: {points_br}\n"
-        )
+    # Extract points
+    points_ph = response_ph.get('smile_points', 'Unavailable') if response_ph else 'Unavailable'
+    points_br = response_br.get('smile_points', 'Unavailable') if response_br else 'Unavailable'
 
-        # Send response
-        await update.message.reply_text(response_message, parse_mode='HTML')
+    # Format response
+    response_message = (
+        f"<b>ADMIN BALANCE</b>:\n\n"
+        f"🇵🇭 <b>Smile One PH</b>: {points_ph}\n"
+        f"🇧🇷 <b>Smile One BR</b>: {points_br}\n"
+    )
 
-    except Exception as e:
-        logging.error(f"Error in /query_point_command: {e}")
-        await update.message.reply_text("An error occurred while fetching balances.")
+    # Send response
+    await update.message.reply_text(response_message, parse_mode='HTML')
 
 
 product_info_ph = {
