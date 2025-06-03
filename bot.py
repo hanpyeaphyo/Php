@@ -1,33 +1,19 @@
 from typing import Final
-from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext, ContextTypes, CallbackQueryHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
 from motor.motor_asyncio import AsyncIOMotorClient
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
-from datetime import datetime, timedelta
-from html import escape
-from pymongo import MongoClient
-from telegram.constants import ParseMode
+from datetime import datetime
 from zoneinfo import ZoneInfo
-import requests
 import logging
-import httpx
-import html
-import base64
-import hmac
+import aiohttp
 import hashlib
 import time
-import aiohttp
-import asyncio
-import json
-import uuid
-import pytz
 import os
-import re
 
 
-load_dotenv('bot.env') # This loads environment variables from the .env file
+load_dotenv('bot.env')
 
 # MongoDB configuration
 username = os.getenv('DB_USERNAME')
@@ -38,18 +24,17 @@ encoded_password = quote_plus(str(password))
 MONGO_URI = f"mongodb+srv://{encoded_username}:{encoded_password}@cluster0.d1k0aur.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = AsyncIOMotorClient(MONGO_URI)
 db = client['smilebot']
-users_collection = db['user'] # user data
-order_collection = db['order'] # order data for mlbb
+users_collection = db['user']  # user data
+order_collection = db['order']  # order data for mlbb
 
 SMILE_ONE_BASE_URL_PH: Final = "https://www.smile.one/ph"
-SMILE_ONE_BASE_URL_PH: Final = "https://www.smile.one/ph"
-SMILE_ONE_BASE_URL_R: Final = "https://www.smile.one/ph"
+SMILE_ONE_BASE_URL_BR: Final = "https://www.smile.one/br"
 TOKEN = os.getenv('BOTKEY')
 UID = os.getenv('UID')
 EMAIL = os.getenv('EMAIL')
 KEY = os.getenv('KEY')
 DEFAULT_PRODUCT_ID: Final = "213"
-admins = [5671920054,1836389511,7135882496]
+admins = [5671920054, 1836389511, 7135882496]
 
 # Debug print to check if environment variables are loading correctly
 print(f"DB_USERNAME: {username}")
@@ -59,15 +44,18 @@ print(f"EMAIL: {EMAIL}")
 print(f"KEY: {KEY}")
 
 # Configure logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-        
 
-############ message part ###############
+
+############ General message parts ###############
+
 # Fetch and display user ID
 async def getid_command(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     await update.message.reply_text(f"Your Telegram user 🆔 is: {user_id}")
+
 
 async def start_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Telegram user ID
@@ -78,12 +66,8 @@ async def start_command(update: Update, context: CallbackContext):
 
     if not user:
         # Show the introduction message with a Register button
-        not_registered_message = (
-            "<b>WELCOME TO Minhtet Bot</b>\n"
-            
-             "<b>Register Now 👇</b>\n"          
-        )
-
+        not_registered_message = ("<b>WELCOME TO Minhtet Bot</b>\n"
+                                  "<b>Register Now 👇</b>\n")
         # Add a Register button
         keyboard = [
             [InlineKeyboardButton("✅ Register", callback_data="register_user")]
@@ -96,12 +80,13 @@ async def start_command(update: Update, context: CallbackContext):
             reply_markup=reply_markup
         )
     else:
-        balance = user.get('balance_ph', 0)
+        balance_ph = user.get('balance_ph', 0)
+        balance_br = user.get('balance_br', 0)
         existing_user_message = (
             "<b>HI! DEAR,</b>\n"
             "Your current balances:\n"
-            f"1️⃣ Balance : ${balance}\n\n"
-
+            f"1️⃣ PH Balance : ${balance_ph}\n"
+            f"2️⃣ BR Balance : ${balance_br}\n\n"
             "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
         )
         await update.message.reply_text(existing_user_message, parse_mode="HTML")
@@ -116,11 +101,13 @@ async def handle_register_user(update: Update, context: CallbackContext):
     user = await users_collection.find_one({"user_id": user_id})
     if user:
         # User is already registered
-        balance = user.get('balance_ph', 0)
+        balance_ph = user.get('balance_ph', 0)
+        balance_br = user.get('balance_br', 0)
         existing_user_message = (
             "Hi Dear, You are already registered!\n"
-            "Your Current Balance:\n"
-            f"1️⃣ Balance : ${balance}\n\n"
+            "Your Current Balances:\n"
+            f"1️⃣ PH Balance : ${balance_ph}\n"
+            f"2️⃣ BR Balance : ${balance_br}\n\n"
             "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
         )
         await query.edit_message_text(existing_user_message, parse_mode="HTML")
@@ -128,7 +115,8 @@ async def handle_register_user(update: Update, context: CallbackContext):
         # Register the user
         new_user = {
             "user_id": user_id,
-            "balance_ph": 0,  # Initialize inr balance
+            "balance_ph": 0,  # Initialize PH balance
+            "balance_br": 0,  # Initialize BR balance
             "date_joined": int(time.time())
         }
         await users_collection.insert_one(new_user)
@@ -138,25 +126,25 @@ async def handle_register_user(update: Update, context: CallbackContext):
             "🎉 <b>Registration Successful!</b>\n"
             "You are now registered in our system. Welcome to our services!\n"
             "Your current balances:\n"
-            "🇲🇲 Balance : $0\n\n"
-
+            "PH Balance : \$0\n"
+            "BR Balance : \$0\n\n"
             "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
         )
-        await query.edit_message_text(success_message, parse_mode="HTML")        
-#########  commands ##########
+        await query.edit_message_text(success_message, parse_mode="HTML")
+
 
 async def help_command(update: Update, context: CallbackContext):
     username = update.message.from_user.username
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
-    
+
     # Check if the user is registered in the database
     user = await users_collection.find_one({"user_id": user_id})
-    
+
     if not user:
         # If the user is not found in the database
         await update.message.reply_text("ဆက်သွယ်ရန်😘😘@minhtet4604 ")
         return
-    
+
     help_message = f"""
 <b>HELLO</b> {username} 🤖  
 
@@ -175,11 +163,15 @@ Please Contact admin ☺️
 
 /price - <b>Price List</b>
 
+/mmp - <b>Order PH</b>
+
+/mmb - <b>Order BR</b>
+
     """
     try:
         # Log the message for debugging
         logger.info("Sending help message: %s", help_message)
-        await update.message.reply_text(help_message, parse_mode='HTML')  # Use HTML parsing
+        await update.message.reply_text(help_message, parse_mode='HTML')  # Use HTML
     except Exception as e:
         logger.error("Failed to send help message: %s", e)
         await update.message.reply_text("An error occurred while sending the help message.")
@@ -195,11 +187,11 @@ async def price_command(update: Update, context: CallbackContext):
         await update.message.reply_text("ဆက်သွယ်ရန် 🥰🥰 @minhtet4604")
         return
 
-    # Now define the price list after registration check
+    # Define the merged price list
     price_list = """
-<b>Pack List php:</b>
+<b>Pack List (PH and BR):</b>
 
-       BONUS PACK 
+<b>🇵🇭 Philippines:</b>
     11 - diamond 11
     22 - diamond 22
     56 - diamond 56
@@ -211,21 +203,62 @@ async def price_command(update: Update, context: CallbackContext):
     2398 - diamond 2398
     6042 - diamond 6042
     wdp - diamond 95
-    gp -diamond 475
-အိုင်ဒီ မှားလျှင် Dia amount မှားလျှင် တာဝန်မယူ
+
+<b>🇧🇷 Brazil:</b>
+    BONUS PACK 
+    - svp: $39.00
+    - 55: $39.00
+    - 165: $116.90
+    - 275: $187.50
+    - 565: $385.00
+    
+      NORMAL PACK
+    
+    - wkp: $76.00
+    - wkp2: $152.00
+    - wkp3: $228.00
+    - wkp4: $304.00
+    - wkp5: $380.00
+    - wkp10: $760.00
+    - twilight: $402.50
+    - 86: $61.50
+    - 172: $122.00
+    - 257: $177.50
+    - 343: $239.00
+    - 344: $244.00
+    - 429: $299.50
+    - 514: $355.00
+    - 600: $416.50
+    - 706: $480.00
+    - 792: $541.50
+    - 878: $602.00
+    - 963: $657.50
+    - 1049: $719.00
+    - 1135: $779.50
+    - 1220: $835.00
+    - 1412: $960.00
+    - 1584: $1082.00
+    - 1755: $1199.00
+    - 2195: $1453.00
+    - 2901: $1940.00
+    - 3688: $2424.00
+    - 4390: $2906.00
+    - 5532: $3660.00
+    - 9288: $6079.00
+    - 11483: $7532.00
 """
     await update.message.reply_text(price_list, parse_mode='HTML')
-    
+
 
 async def admin_command(update: Update, context: CallbackContext):
     username = update.message.from_user.username
-    
+
     user_id = update.message.from_user.id
     # Check if the user is an admin
-    if user_id not in admins:  # Assuming `admins` is a list of admin user IDs
+    if user_id not in admins:
         await update.message.reply_text("❌Unauthorized Alert🚨")
         return
-  
+
     help_message = f"""
 <b>Hello Admin</b> {username} 
 <b>You can use below commands :</B>   
@@ -233,21 +266,9 @@ async def admin_command(update: Update, context: CallbackContext):
 1️⃣<b>Admin Mode</b>:
  /bal_admin - <b>Check balance</b>
  /user - <b>User List</b>
- /all_his - <b>All Order History</b>
- 
-2️⃣ <b>Wallet Topup:</b>
+ /all_his - <b>All Order History</b> 
+    """
 
-Ask to user for telegram_id Press 
-/getid
-
-<b>Added</b>
-/add_bal 1836389511 500
-/add_bal telegram_id amount
-
-<b>Deducted</b>
-/ded_bal 1836389511 500
-/ded_bal telegram_id amount
-    """ 
     try:
         # Log the message for debugging
         logger.info("Sending help message: %s", help_message)
@@ -262,55 +283,59 @@ async def get_balance(user_id: str):
     print(f"Fetching balance for user_id: {user_id}")  # Debugging statement
     if user:
         return {
-            'balance_ph': user.get('balance_ph', 0),  # Return balance_ph or 0 if not found
-       }
+            'balance_ph': user.get('balance_ph', 0),
+            'balance_br': user.get('balance_br', 0),
+        }
     return None
 
 # Check balance command
+
+
 async def balance_command(update: Update, context: CallbackContext):
-    user_id = str(update.message.from_user.id)  # Convert user_id to string  
+    user_id = str(update.message.from_user.id)  # Convert user_id to string
 
     user = await users_collection.find_one({"user_id": user_id})
-    
+
     if not user:
         # If the user is not found in the database
         await update.message.reply_text("ဆက်သွယ်ရန် @minhtet4604 ")
         return
-    
+
     balances = await get_balance(user_id)  # Await the async get_balance function
 
     if balances:
-        balance = balances.get('balance_ph', 0)  # Fetch balance for phazil
+        balance_ph = balances.get('balance_ph', 0)  # Fetch balance for PH
+        balance_br = balances.get('balance_br', 0)  # Fetch balance for BR
 
         # Format the response with emojis and Markdown styling
         response_message = (
             f"*MinHtet Bot BALANCE 💰:*\n\n"
-            f"🇲🇲 *လက်ကျန်ငွေ *: `{balance:.2f}` 🪙\n"
+            f"🇵🇭 *PH Balance*: `{balance_ph:.2f}` 🪙\n"
+            f"🇧🇷 *BR Balance*: `{balance_br:.2f}` 🪙\n"
         )
 
         await update.message.reply_text(response_message, parse_mode='Markdown')
     else:
         await update.message.reply_text("ဆက်သွယ်ရန်@minhtet4604")
 
-async def update_balance(user_id: str, amount: int):  
+
+async def update_balance(user_id: str, amount: int, balance_type: str):
     """
     Updates the balance of the specified user.
     """
     user = await users_collection.find_one({"user_id": user_id})
     if user:
-        # Ensure the "balance" field exists and defaults to 0 if missing
-        current_balance = user.get("balance_ph", 0)
+        current_balance = user.get(balance_type, 0)
         new_balance = current_balance + amount
-        
-        # Update the balance
-        await users_collection.update_one({"user_id": user_id}, {"$set": {"balance_ph": new_balance}})
+
+        await users_collection.update_one({"user_id": user_id}, {"$set": {balance_type: new_balance}})
         return new_balance
     return None
 
 
 async def add_balance_command(update: Update, context: CallbackContext):
     """
-    Command to add balance to a user's account and log the transaction.
+    Command to add balance to a user's account.
     """
     admin_user_id = update.message.from_user.id  # Get the user ID of the admin issuing the command
 
@@ -319,16 +344,17 @@ async def add_balance_command(update: Update, context: CallbackContext):
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
-    # Expecting two arguments: target_user_id and amount
-    if len(context.args) != 2 or not context.args[1].isdigit():
+    # Expecting three arguments: target_user_id, amount, balance_type
+    if len(context.args) != 3 or not context.args[1].isdigit() or context.args[2] not in ['balance_ph', 'balance_br']:
         await update.message.reply_text(
-            "*Please do like this*: `/add_bal <user_id> <amount>`",
+            "*Usage*: `/add_bal <user_id> <amount> <balance_type>` balance_type should be either balance_ph or balance_br",
             parse_mode='Markdown'
         )
         return
 
     target_user_id = context.args[0]  # The user ID to add balance to
     amount = int(context.args[1])  # The amount to add
+    balance_type = context.args[2]
 
     # Check if the target user exists in the database
     target_user = await users_collection.find_one({"user_id": target_user_id})
@@ -337,36 +363,18 @@ async def add_balance_command(update: Update, context: CallbackContext):
         return
 
     # Add the balance to the target user
-    new_balance = await update_balance(target_user_id, amount)
-    
+    new_balance = await update_balance(target_user_id, amount, balance_type)
+
     if new_balance is not None:
-        # Log the balance addition in the balance history collection
-        log_entry = {
-            "target_user_id": target_user_id,
-            "amount": amount,
-            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")  # Use UTC time
-        }
-        
         # Success message with formatting
         await update.message.reply_text(
-            f"✅ *Success!* Added `{amount}` to *User ID* `{target_user_id}`'s balance.\n\n"
+            f"✅ *Success!* Added `{amount}` to *User ID* `{target_user_id}`'s {balance_type}.\n\n"
             f"🇲🇲 New Balance: `{new_balance}` 🪙",
             parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(f"❌ *Failed*: Unable to update balance for *User ID* `{target_user_id}`.", parse_mode='Markdown')
 
-
-async def deduct_balance(user_id: str, amount: int):  
-    """
-    Deduct balance from a specified user.
-    """
-    user = await users_collection.find_one({"user_id": user_id})
-    if user and user["balance_ph"] >= amount:  # Ensure sufficient balance exists
-        new_balance = user["balance_ph"] - amount
-        await users_collection.update_one({"user_id": user_id}, {"$set": {"balance_ph": new_balance}})
-        return new_balance
-    return None  # Return None if insufficient balance or user does not exist
 
 async def deduct_balance_command(update: Update, context: CallbackContext):
     """
@@ -382,16 +390,17 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
         )
         return
 
-    # Expecting two arguments: target_user_id and amount
-    if len(context.args) != 2 or not context.args[1].isdigit():
+    # Expecting three arguments: target_user_id, amount, balance_type
+    if len(context.args) != 3 or not context.args[1].isdigit() or context.args[2] not in ['balance_ph', 'balance_br']:
         await update.message.reply_text(
-            "*Please do like this*: Example: `/ded_balance <user_id> <amount>`",
+            "*Usage*: `/ded_bal <user_id> <amount> <balance_type>` balance_type should be either balance_ph or balance_br",
             parse_mode='Markdown'
         )
         return
 
     target_user_id = context.args[0]  # The user ID to deduct balance from
     amount = int(context.args[1])  # The amount to deduct
+    balance_type = context.args[2]
 
     # Check if the target user exists in the database
     target_user = await users_collection.find_one({"user_id": target_user_id})
@@ -403,12 +412,12 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
         return
 
     # Deduct the balance from the target user
-    new_balance = await deduct_balance(target_user_id, amount)
-    
+    new_balance = await update_balance(target_user_id, -amount, balance_type)
+
     if new_balance is not None:
         # Success message with formatting
         await update.message.reply_text(
-            f"✅ *Success!* Deducted `{amount}` from *User ID* `{target_user_id}`'s balance.\n\n"
+            f"✅ *Success!* Deducted `{amount}` from *User ID* `{target_user_id}`'s {balance_type}.\n\n"
             f"💵 New Balance: `{new_balance}` 🪙",
             parse_mode='Markdown'
         )
@@ -418,9 +427,11 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
             parse_mode='Markdown'
         )
 
+
 def split_message(text, max_length=4096):
     """Splits the message into chunks that fit within the Telegram message limit."""
     return [text[i:i + max_length] for i in range(0, len(text), max_length)]
+
 
 async def get_users_command(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id  # Get the user ID of the person issuing the command
@@ -442,19 +453,16 @@ async def get_users_command(update: Update, context: CallbackContext):
     response_summary = "User Details: 📋\n\n"
     for user in users_list:
         user_id = user.get('user_id', 'N/A')
-        balance = user.get('balance_ph', 0)
-        date_joined = datetime.fromtimestamp(user.get('date_joined', 0)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        """
-        # Count total orders created by this user from both collections
-        total_orders_collection1 = await orders_collection.count_documents({"sender_user_id": user_id})
-        total_orders_collection2 = await order_collection.count_documents({"sender_user_id": user_id})
-        total_orders = total_orders_collection1 + total_orders_collection2
-        """
+        balance_ph = user.get('balance_ph', 0)
+        balance_br = user.get('balance_br', 0)
+        date_joined = datetime.fromtimestamp(
+            user.get('date_joined', 0)).strftime('%Y-%m-%d %H:%M:%S')
+
         # Enhance the output with clear formatting
         response_summary += (
             f"🆔 USER ID: {user_id}\n"
-            f" BALANCE : ${balance:.2f}\n"
+            f" PH BALANCE : ${balance_ph:.2f}\n"
+            f" BR BALANCE : ${balance_br:.2f}\n"
             f"📅 DATE JOINED: {date_joined}\n"
             "---------------------------------\n"  # Separator for better readability
         )
@@ -469,17 +477,14 @@ async def get_users_command(update: Update, context: CallbackContext):
         except Exception as e:
             print(f"Error sending message: {e}")
             await update.message.reply_text("An error occurred while sending the message. Please try again later.")
- 
- 
-def split_message(text, max_length=4096):
-    """Splits the message into chunks that fit within the Telegram message limit."""
-    return [text[i:i + max_length] for i in range(0, len(text), max_length)]
+
 
 async def get_user_orders(update: Update, context: CallbackContext):
     sender_user_id = str(update.message.from_user.id)  # Get the Telegram user's ID
 
     # Query both collections for orders made by this sender
-    transactions_cursor = order_collection.find({"sender_user_id": sender_user_id})
+    transactions_cursor = order_collection.find(
+        {"sender_user_id": sender_user_id})
 
     # Convert the cursors to lists asynchronously
     transactions_list = await transactions_cursor.to_list(length=None)
@@ -517,6 +522,7 @@ async def get_user_orders(update: Update, context: CallbackContext):
     messages = split_message(response_summary)
     for msg in messages:
         await update.message.reply_text(msg, parse_mode='HTML')
+
 
 async def get_all_orders(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Get the Telegram user's ID
@@ -573,20 +579,24 @@ async def get_all_orders(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error retrieving orders: {e}")
         await update.message.reply_text("❌ Failed to retrieve order history. Please try again.")
-       
 
-############# smile part ###############
+
+############# Smile One Integration ###############
 
 # Function to calculate sign
+
+
 def calculate_sign(params):
     sorted_params = sorted(params.items())
     query_string = '&'.join([f"{k}={v}" for k, v in sorted_params])
     query_string += f"&{KEY}"
-    hashed_string = hashlib.md5(hashlib.md5(query_string.encode()).hexdigest().encode()).hexdigest()
+    hashed_string = hashlib.md5(hashlib.md5(
+        query_string.encode()).hexdigest().encode()).hexdigest()
     return hashed_string
 
+
 async def get_role_info(userid: str, zoneid: str, product_id: str = DEFAULT_PRODUCT_ID):
-    endpoint = f"{SMILE_ONE_BASE_URL_R}/smilecoin/api/getrole"
+    endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/getrole"  # Assuming PH is valid for role lookup
     current_time = int(time.time())
     params = {
         'uid': UID,
@@ -613,15 +623,15 @@ async def get_role_info(userid: str, zoneid: str, product_id: str = DEFAULT_PROD
 
 async def role_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
-    
+
     # Check if the user is registered in the database
     user = await users_collection.find_one({"user_id": user_id})
-    
+
     if not user:
         # If the user is not found in the database
         await update.message.reply_text("ဆက်သွယ်ရန် @minhtet4604")
         return
-    
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text('ဆက်သွယ်ရန် @minhtet4604 ')
@@ -629,7 +639,8 @@ async def role_command(update: Update, context: CallbackContext):
     userid, zoneid = args
     role_info = await get_role_info(userid, zoneid)  # Await this call
     if role_info:
-        username = role_info.get('username', 'N/A')  # Check username for special characters
+        username = role_info.get(
+            'username', 'N/A')  # Check username for special characters
         reply_message = (
             f"<b>=== အချက်အလက် ===</b>\n"
             f"<b>အသုံးပြုသူ:</b> {username}\n"
@@ -640,45 +651,7 @@ async def role_command(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text('Failed to fetch role info. Try again later.')
 
-# Query points for ph region
-def get_query_points_ph():
-    endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/querypoints"
-    current_time = int(time.time())
-    params = {
-        'uid': UID,
-        'email': EMAIL,
-        'product': 'mobilelegends',
-        'time': current_time
-    }
-    params['sign'] = calculate_sign(params)
-    try:
-        response = requests.post(endpoint, data=params)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        logger.error(f"Error fetching points: {e}")
-        return None
 
-async def get_query_points_ph():
-    endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/querypoints"
-    current_time = int(time.time())
-    params = {
-        'uid': UID,
-        'email': EMAIL,
-        'product': 'mobilelegends',
-        'time': current_time
-    }
-    params['sign'] = calculate_sign(params)
-    try:
-        response = requests.post(endpoint, data=params)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        logger.error(f"Error fetching points: {e}")
-        return None
-
-
-# Command to query points in both ph and PH
 async def query_point_command(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
 
@@ -687,19 +660,56 @@ async def query_point_command(update: Update, context: CallbackContext):
         await update.message.reply_text('Unauthorized access.')
         return
 
+    def get_query_points_ph():
+        endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/querypoints"
+        current_time = int(time.time())
+        params = {
+            'uid': UID,
+            'email': EMAIL,
+            'product': 'mobilelegends',
+            'time': current_time
+        }
+        params['sign'] = calculate_sign(params)
+        try:
+            response = requests.post(endpoint, data=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            logger.error(f"Error fetching PH points: {e}")
+            return None
+
+    def get_query_points_br():
+        endpoint = f"{SMILE_ONE_BASE_URL_BR}/smilecoin/api/querypoints"
+        current_time = int(time.time())
+        params = {
+            'uid': UID,
+            'email': EMAIL,
+            'product': 'mobilelegends',
+            'time': current_time
+        }
+        params['sign'] = calculate_sign(params)
+        try:
+            response = requests.post(endpoint, data=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            logger.error(f"Error fetching BR points: {e}")
+            return None
+
     try:
-        # Fetch Smile Points and Yok Balance
+        # Fetch Smile Points
         response_ph = get_query_points_ph()
-        response_ph = await get_query_points_ph()
+        response_br = get_query_points_br()
 
         # Extract points
         points_ph = response_ph.get('smile_points', 'Unavailable') if response_ph else 'Unavailable'
-        points_ph = response_ph.get('smile_points', 'Unavailable') if response_ph else 'Unavailable'
+        points_br = response_br.get('smile_points', 'Unavailable') if response_br else 'Unavailable'
 
         # Format response
         response_message = (
             f"<b>ADMIN BALANCE</b>:\n\n"
-            f"🪙 <b>1. Smile One phL</b>: {points_ph}\n\n"
+            f"🇵🇭 <b>Smile One PH</b>: {points_ph}\n"
+            f"🇧🇷 <b>Smile One BR</b>: {points_br}\n"
         )
 
         # Send response
@@ -710,29 +720,65 @@ async def query_point_command(update: Update, context: CallbackContext):
         await update.message.reply_text("An error occurred while fetching balances.")
 
 
-# order ph
-product_info = {
+product_info_ph = {
     "11": {"id": "212", "rate": 9.50},
     "22": {"id": "213", "rate": 19.00},
     "56": {"id": "214", "rate": 47.50},
     "112": {"id": "215", "rate": 95.00},
     "223": {"id": "216", "rate": 190.00},
-    
-    "336": {"id": "217", "rate": 285.00},   
-    "570": {"id": "218", "rate": 475.00},   
-    "1163": {"id": "219", "rate": 950.00},   
-    "2398": {"id": "220", "rate": 1900.00},   
-    "gp": {"id": "224", "rate": 475.00}, 
-    "6042": {"id": "221", "rate": 4750.00}, 
-    "wdp": {"id": "16641", "rate": 95.00},   
-    
-    
+    "336": {"id": "217", "rate": 285.00},
+    "570": {"id": "218", "rate": 475.00},
+    "1163": {"id": "219", "rate": 950.00},
+    "2398": {"id": "220", "rate": 1900.00},
+    "6042": {"id": "221", "rate": 4750.00},
+    "wdp": {"id": "16641", "rate": 95.00},
 }
 
-async def create_order_and_log_ph(userid, zoneid, product_id):
-    endpoint = f"{SMILE_ONE_BASE_URL_PH}/smilecoin/api/createorder"
+product_info_br = {
+    "svp": {"id": "22594", "rate": 39.00},
+    "55": {"id": "22590", "rate": 39.00},
+    "165": {"id": "22591", "rate": 116.90},
+    "275": {"id": "22592", "rate": 187.50},
+    "565": {"id": "22593", "rate": 385.00},
+    "86": {"id": "13", "rate": 61.50},
+    "172": {"id": "23", "rate": 122.00},
+    "257": {"id": "25", "rate": 177.50},
+    "706": {"id": "26", "rate": 480.00},
+    "2195": {"id": "27", "rate": 1453.00},
+    "3688": {"id": "28", "rate": 2424.00},
+    "5532": {"id": "29", "rate": 3660.00},
+    "9288": {"id": "30", "rate": 6079.00},
+    "twilight": {"id": "33", "rate": 402.50},
+    "wkp": {"id": "16642", "rate": 76.00},
+    "343": {"id": ["13", "25"], "rate": 239.00},
+    "344": {"id": ["23", "23"], "rate": 244.00},
+    "429": {"id": ["23", "25"], "rate": 299.00},
+    "514": {"id": ["25", "25"], "rate": 355.00},
+    "600": {"id": ["25", "25", "13"], "rate": 416.00},
+    "792": {"id": ["26", "13"], "rate": 541.00},
+    "878": {"id": ["26", "23"], "rate": 602.00},
+    "963": {"id": ["26", "25"], "rate": 657.00},
+    "1049": {"id": ["26", "25", "13"], "rate": 719.00},
+    "1135": {"id": ["26", "25", "23"], "rate": 779.00},
+    "1220": {"id": ["26", "25", "25"], "rate": 835.00},
+    "1412": {"id": ["26", "26"], "rate": 960.00},
+    "1584": {"id": ["26", "26", "23"], "rate": 1082.00},
+    "1755": {"id": ["26", "26", "25", "13"], "rate": 1199.00},
+    "2901": {"id": ["27", "26"], "rate": 1940.00},
+    "4390": {"id": ["27", "27"], "rate": 2906.00},
+    "11483": {"id": ["30", "27"], "rate": 7532.00},
+    "wkp2": {"id": ["16642", "16642"], "rate": 152.00},
+    "wkp3": {"id": ["16642", "16642", "16642"], "rate": 228.00},
+    "wkp4": {"id": ["16642", "16642", "16642", "16642"], "rate": 304.00},
+    "wkp5": {"id": ["16642", "16642", "16642", "16642", "16642"], "rate": 380.00},
+    "wkp10": {"id": ["16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642"], "rate": 760.00},
+}
+
+
+async def create_order_and_log(region: str, userid: str, zoneid: str, product_id: str):
+    endpoint = f"{SMILE_ONE_BASE_URL_PH if region == 'ph' else SMILE_ONE_BASE_URL_BR}/smilecoin/api/createorder"
     current_time = int(time.time())
-    
+
     params = {
         'uid': UID,
         'email': EMAIL,
@@ -742,7 +788,7 @@ async def create_order_and_log_ph(userid, zoneid, product_id):
         'productid': product_id,
         'time': current_time
     }
-    
+
     params['sign'] = calculate_sign(params)
 
     async with aiohttp.ClientSession() as session:
@@ -755,17 +801,14 @@ async def create_order_and_log_ph(userid, zoneid, product_id):
                     return {"order_id": data.get('order_id')}  # Return only the order ID if successful
                 else:
                     error_message = data.get('message', 'Unknown error')  # Capture the specific failure reason
-                    logger.error(f"Failed to create order: {error_message}")
+                    logger.error(f"Failed to create {region.upper()} order: {error_message}")
                     return {"order_id": None, "reason": error_message}  # Return None with reason
         except aiohttp.ClientError as e:
-            logger.error(f"Error creating order: {e}")
+            logger.error(f"Error creating {region.upper()} order: {e}")
             return {"order_id": None, "reason": str(e)}  # Capture client error as reason if needed
 
 
-async def create_order_for_product(user_id, zone_id, pid):
-    return await create_order_and_log_ph(user_id, zone_id, pid)  # Make sure this is awaited
-
-async def bulk_command_ph(update: Update, context: CallbackContext):
+async def bulk_command(update: Update, context: CallbackContext, region: str, product_info: dict, balance_type: str):
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
 
     # Check if the user is registered in the database
@@ -776,10 +819,12 @@ async def bulk_command_ph(update: Update, context: CallbackContext):
 
     args = context.args
 
+    command = 'mmb' if region == 'br' else 'mmp'
+
     # Security: Check for multiple commands in one input
-    if len(update.message.text.split('/mmp')) > 2:
-        await update.message.reply_text("Multiple /mmp commands detected in one input. Process aborted for security reasons.")
-        return    
+    if len(update.message.text.split(f'/{command}')) > 2:
+        await update.message.reply_text(f"Multiple /{command} commands detected in one input. Process aborted for security reasons.")
+        return
 
     if len(args) < 3:  # Expecting at least one user ID, zone ID, and one product name
         await update.message.reply_text('ဆက်သွယ်ရန် @minhtet4604')
@@ -800,9 +845,8 @@ async def bulk_command_ph(update: Update, context: CallbackContext):
             await update.message.reply_text('Invalid input. Make sure to provide user ID, zone ID, and product name for each order.')
             return
 
-        user_id = str(args[i])
-        zone_id = str(args[i + 1])
-        product_name = args[i + 2].lower()
+        user_id, zone_id, product_name = args[i:i+3]
+        product_name = product_name.lower()  # Ensure the product name is in lowercase
 
         # Check if the product name is valid
         product = product_info.get(product_name)
@@ -835,33 +879,33 @@ async def bulk_command_ph(update: Update, context: CallbackContext):
 
     if not order_requests:
         await loading_message.edit_text("No valid orders to process. Please Enter Valid Product Name")
-        return    
+        return
 
-        # Check if the user has sufficient balance
+    # Check if the user has sufficient balance
     current_balance = await get_balance(sender_user_id)
     if current_balance is None:
         print(f"[ERROR] Sender wallet balance not found for User ID: {sender_user_id}")
         await loading_message.edit_text("ဆက်သွယ်ရန် @minhtet4604")
-        return    
+        return
     # Calculate total cost of all valid orders
-    total_cost = sum(order['product_rate'] for order in order_requests)        
-            
+    total_cost = sum(order['product_rate'] for order in order_requests)
+
     # Check if the user's balance is sufficient for the total cost
-    if current_balance['balance_ph'] < total_cost:
-        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_balance['balance_ph']}")
+    if current_balance[balance_type] < total_cost:
+        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_balance[balance_type]}")
         await loading_message.edit_text(
-            f"လက်ကျန်ငွေ မလုံလောက်ပါ.\nAvailable Balance: {current_balance['balance_ph']}\nစုစုပေါင်း: {total_cost}"
+            f"လက်ကျန်ငွေ မလုံလောက်ပါ.\nAvailable Balance: {current_balance[balance_type]}\nစုစုပေါင်း: {total_cost}"
         )
-        return    
+        return
 
     # Process orders
     order_summary = []
     transaction_documents = []
     balance_to_readd = 0  # Track balance to re-add for failed orders
-    
+
     for order in order_requests:
-        current_balance = await get_balance(sender_user_id)   
-        if current_balance['balance_ph'] < order['product_rate']:
+        current_balance = await get_balance(sender_user_id)
+        if current_balance[balance_type] < order['product_rate']:
             print(f"[ERROR] Insufficient balance during processing for User ID: {sender_user_id}.")
             failed_orders.append(
                 f"<b>Game ID:</b> {order['user_id']}\n"
@@ -870,211 +914,125 @@ async def bulk_command_ph(update: Update, context: CallbackContext):
                 f"<b>Results:</b> Insufficient Balance\n\n"
             )
             continue
-        
+
         # Deduct balance for the current order
-        try:
-            new_balance = await deduct_balance1(sender_user_id, order['product_rate'], 'balance_ph')
-            if new_balance is None:
-                raise Exception("Balance deduction failed or insufficient balance.")
-            print(f"[DEBUG] Deducted {order['product_rate']} for User ID: {sender_user_id}. New balance: {new_balance}.")
-        except Exception as e:
-            print(f"[ERROR] Failed to deduct balance: {e}")
+        new_balance = await update_balance(
+            sender_user_id, -order['product_rate'], balance_type)
+        if new_balance is None:
             failed_orders.append(
                 f"<b>Game ID:</b> {order['user_id']}\n"
                 f"<b>Game Server:</b> {order['zone_id']}\n"
                 f"<b>Items:</b> {order['product_name']}\n"
                 f"<b>Results:</b> Balance Deduction Failed\n\n"
             )
-            continue        
-        
+            continue
+
         # Process the order
         order_ids = []
-        try:
-            for pid in order['product_ids']:
-                result = await create_order_and_log_ph(order['user_id'], order['zone_id'], pid)
-                order_id = result.get("order_id")
-                if not order_id:
-                    raise Exception(result.get("reason", "Unknown failure"))
-                order_ids.append(order_id)
-        except Exception as e:
-            print(f"[ERROR] Order processing failed: {e}")
-            balance_to_readd += order['product_rate']  # Add back the balance for failed orders
-            failed_orders.append(
-                f"<b>Game ID:</b> {order['user_id']}\n"
-                f"<b>Game Server:</b> {order['zone_id']}\n"
-                f"<b>Items:</b> {order['product_name']}\n"
-                f"<b>Results:</b> {str(e)}\n\n"
-            )
-            continue        
-
-        if order_ids:
-            role_info = await get_role_info(order['user_id'], order['zone_id'])
-            if role_info is None:
-                balance_to_readd += order['product_rate']  # Add back the balance for failed user lookup
+        for pid in order['product_ids']:
+            result = await create_order_and_log(region, order['user_id'], order['zone_id'], pid)
+            order_id = result.get("order_id")
+            if not order_id:
+                # Revert the balance deduction if the order creation fails
+                await update_balance(sender_user_id, order['product_rate'], balance_type)
                 failed_orders.append(
                     f"<b>Game ID:</b> {order['user_id']}\n"
                     f"<b>Game Server:</b> {order['zone_id']}\n"
                     f"<b>Items:</b> {order['product_name']}\n"
-                    f"<b>Results:</b> User ID not exist\n\n"
+                    f"<b>Results:</b> {result.get('reason', 'Order creation failed')}\n\n"
                 )
-                continue
+                break
+            order_ids.append(order_id)
+        if not order_ids:
+            continue
 
-            username = role_info.get('username', 'N/A')
-            order_summary.append({
-                "order_ids": order_ids,
-                "username": username,
-                "user_id": order['user_id'],
-                "zone_id": order['zone_id'],
-                "product_name": order['product_name'],
-                "total_cost": order['product_rate'],
-            })
+        role_info = await get_role_info(order['user_id'], order['zone_id'])
+        if role_info is None:
+            await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failure
+            failed_orders.append(
+                f"<b>Game ID:</b> {order['user_id']}\n"
+                f"<b>Game Server:</b> {order['zone_id']}\n"
+                f"<b>Items:</b> {order['product_name']}\n"
+                f"<b>Results:</b> User ID not exist\n\n"
+            )
+            continue
 
-            transaction_documents.append({
-                "sender_user_id": sender_user_id,
-                "user_id": order['user_id'],
-                "zone_id": order['zone_id'],
-                "username": username,
-                "product_name": order['product_name'],
-                "order_ids": order_ids,
-                "date": datetime.now().strftime('%Y-%m-%d'),
-                "total_cost": order['product_rate'],
-                "status": "success"
-            })
+        username = role_info.get('username', 'N/A')
+        order_summary.append({
+            "order_ids": order_ids,
+            "username": username,
+            "user_id": order['user_id'],
+            "zone_id": order['zone_id'],
+            "product_name": order['product_name'],
+            "total_cost": order['product_rate'],
+        })
 
-    # Re-add balance for failed orders
-    if balance_to_readd > 0:
-        await readd_balance(sender_user_id, balance_to_readd, 'balance_ph')
-        print(f"[DEBUG] Re-added {balance_to_readd} to User ID: {sender_user_id} due to failed orders.")
- 
+        transaction_documents.append({
+            "sender_user_id": sender_user_id,
+            "user_id": order['user_id'],
+            "zone_id": order['zone_id'],
+            "username": username,
+            "product_name": order['product_name'],
+            "order_ids": order_ids,
+            "date": datetime.now().strftime('%Y-%m-%d'),
+            "total_cost": order['product_rate'],
+            "status": "success"
+        })
+
     # Insert all successful transactions
     if transaction_documents:
         await order_collection.insert_many(transaction_documents)
-        
-        balance = user.get('balance_ph', 0)
 
     # Prepare response summary
-    response_summary = "======Dia အရောင်းပြေစာ======\n"
+    response_summary = f"======{region.upper()} Order Summary======\n"
     current_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %H:%M:%S')  # Myanmar time
     for detail in order_summary:
         order_ids_str = ', '.join(detail["order_ids"])
         response_summary += (
-            f"<b>အော်ဒါ         :   </b> Dia ထည့်ပြီးပါပြီ✅\n"
-            f"<b>အော်ဒါ အိုင်ဒီ:   </b> {order_ids_str}\n"
-            f"<b>ဂိမ်း နာမည်:   </b> {detail['username']}\n"
-            f"<b>ဂိမ်း ID       :   </b> {detail['user_id']}\n"
-            f"<b>ဂိမ်း Server:   </b> {detail['zone_id']}\n"
-            f"<b>အချိန်       :   </b> {current_time}\n"  
-            f"<b>အရေတွက်:   </b> {detail['product_name']}💎\n"
-            f"<b>စုစုပေါင်း:   </b> ${detail['total_cost']:.2f} 🪙\n\n"           
-            
-            
+            f"<b>Order Completed:</b> ✅\n"
+            f"<b>Order ID:</b> {order_ids_str}\n"
+            f"<b>Game Name:</b> {detail['username']}\n"
+            f"<b>Game ID:</b> {detail['user_id']}\n"
+            f"<b>Game Server:</b> {detail['zone_id']}\n"
+            f"<b>Time:</b> {current_time}\n"
+            f"<b>Amount:</b> {detail['product_name']}💎\n"
+            f"<b>Total Cost:</b> ${detail['total_cost']:.2f} 🪙\n\n"
         )
 
     if failed_orders:
-        response_summary += "\n<b>Order Status: FAILED ORDERS🚫</b>:\n"
+        response_summary += "\n<b>Failed Orders 🚫</b>:\n"
         response_summary += "\n".join(failed_orders)
 
     await loading_message.edit_text(response_summary, parse_mode='HTML')
-  
-async def deduct_balance1(user_id: str, amount: int, balance_type: str):
-    """
-    Deducts the specified amount from the user's balance safely.
-
-    Args:
-        user_id (str): The user's ID.
-        amount (int): The amount to deduct.
-        balance_type (str): The type of balance to deduct from (e.g., 'balance_ph').
-
-    Returns:
-        int: The updated balance after deduction, or None if the operation failed.
-    """
-    try:
-        # Use findOneAndUpdate for atomic operation
-        result = await users_collection.find_one_and_update(
-            {
-                "user_id": user_id,  # Filter by user_id
-                balance_type: {"$gte": amount}  # Ensure sufficient balance
-            },
-            {
-                "$inc": {balance_type: -amount}  # Deduct the amount
-            },
-            return_document=True  # Return the updated document
-        )
-
-        if result:
-            # Successfully deducted; return the new balance
-            new_balance = result[balance_type] - amount
-            print(f"[DEBUG] Deduction successful. User ID: {user_id}, New Balance: {new_balance}")
-            return new_balance
-        else:
-            # User not found or insufficient balance
-            print(f"[ERROR] Deduction failed. User ID: {user_id}, Balance Type: {balance_type}, Amount: {amount}")
-            return None
-    except Exception as e:
-        # Handle unexpected errors
-        print(f"[ERROR] Exception occurred during balance deduction: {e}")
-        return None
 
 
-async def readd_balance(user_id: str, amount: int, balance_type: str):
-    """
-    Re-adds the specified amount to the user's balance.
+async def bulk_command_ph(update: Update, context: CallbackContext):
+    await bulk_command(update, context, 'ph', product_info_ph, 'balance_ph')
 
-    Args:
-        user_id (str): The user's ID.
-        amount (int): The amount to re-add.
-        balance_type (str): The type of balance to adjust (e.g., 'balance_ph').
 
-    Returns:
-        int: The updated balance after re-adding, or None if the operation failed.
-    """
-    try:
-        # Use findOneAndUpdate for atomic operation
-        result = await users_collection.find_one_and_update(
-            {
-                "user_id": user_id  # Filter by user_id
-            },
-            {
-                "$inc": {balance_type: amount}  # Re-add the amount
-            },
-            return_document=True  # Return the updated document
-        )
+async def bulk_command_br(update: Update, context: CallbackContext):
+    await bulk_command(update, context, 'br', product_info_br, 'balance_br')
 
-        if result:
-            # Successfully re-added; return the new balance
-            new_balance = result[balance_type] + amount
-            print(f"[DEBUG] Re-added {amount} to User ID: {user_id}, New Balance: {new_balance}")
-            return new_balance
-        else:
-            # User not found
-            print(f"[ERROR] Re-addition failed. User ID: {user_id}, Amount: {amount}")
-            return None
-    except Exception as e:
-        # Handle unexpected errors
-        print(f"[ERROR] Exception occurred during balance re-addition: {e}")
-        return None
-  
 
-# Main function to run the bot
 if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
-    
+
     app.add_handler(CommandHandler('start', start_command))
     app.add_handler(CommandHandler('getid', getid_command))
-    app.add_handler(CommandHandler('bal', balance_command)) # user balance
-    app.add_handler(CommandHandler('bal_admin', query_point_command)) # admin balance both smile and mg
+    app.add_handler(CommandHandler('bal', balance_command))  # user balance
+    app.add_handler(CommandHandler('bal_admin', query_point_command))  # admin balance
     app.add_handler(CommandHandler('admin', admin_command))
     app.add_handler(CommandHandler('price', price_command))
     app.add_handler(CommandHandler('help', help_command))
-    app.add_handler(CommandHandler('role', role_command)) # user name check 
+    app.add_handler(CommandHandler('role', role_command))  # user name check
     app.add_handler(CommandHandler('mmp', bulk_command_ph))
-    app.add_handler(CommandHandler('add_bal', add_balance_command)) # add balance for user
-    app.add_handler(CommandHandler('ded_bal', deduct_balance_command)) # remove balance from user
-    app.add_handler(CommandHandler('user', get_users_command)) # admin command user list collect
+    app.add_handler(CommandHandler('mmb', bulk_command_br))
+    app.add_handler(CommandHandler('add_bal', add_balance_command))  # add balance for user
+    app.add_handler(CommandHandler('ded_bal', deduct_balance_command))  # remove balance from user
+    app.add_handler(CommandHandler('user', get_users_command))  # admin command user list collect
     app.add_handler(CommandHandler('all_his', get_all_orders))
-    app.add_handler(CommandHandler('his', get_user_orders)) # order history
+    app.add_handler(CommandHandler('his', get_user_orders))  # order history
     app.add_handler(CallbackQueryHandler(handle_register_user, pattern="register_user"))
-    
-    
+
     print("Bot is running...")
-    app.run_polling(poll_interval=3)   
+    app.run_polling(poll_interval=3)
