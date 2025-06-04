@@ -158,9 +158,9 @@ Please Contact admin ☺️
 
 /price - <b>Price List</b>
 
-/mmp - <b>Order PH</b>
+/mgcp - <b>Order PH</b>
 
-/mmb - <b>Order BR</b>
+/mgcb - <b>Order BR</b>
 
     """
     try:
@@ -844,7 +844,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
 
     args = context.args
 
-    command = 'mmb' if region == 'br' else 'mmp'
+    command = 'mgcb' if region == 'br' else 'mgcp'
 
     # Security: Check for multiple commands in one input
     if len(update.message.text.split(f'/{command}')) > 2:
@@ -1062,8 +1062,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('price', price_command))
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CommandHandler('role', role_command))  # user name check
-    app.add_handler(CommandHandler('mmp', bulk_command_ph))
-    app.add_handler(CommandHandler('mmb', bulk_command_br))
+    app.add_handler(CommandHandler('mgcp', bulk_command_ph))
+    app.add_handler(CommandHandler('mgcb', bulk_command_br))
     app.add_handler(CommandHandler('add_bal', add_balance_command))  # add balance for user
     app.add_handler(CommandHandler('ded_bal', deduct_balance_command))  # remove balance from user
     app.add_handler(CommandHandler('user', get_users_command))  # admin command user list collect
