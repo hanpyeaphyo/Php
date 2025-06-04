@@ -152,7 +152,7 @@ Please Contact admin ☺️
 
 /his - <b>Orders History</b>
 
-/role - <b>Check Username MLBB</b>
+/role - <b>Check Username MAGIC ChHESS GOGO</b>
 
 /getid - <b>Account ID</b>
 
@@ -659,7 +659,7 @@ async def get_role_info(userid: str, zoneid: str, product_id: str = DEFAULT_PROD
         'email': EMAIL,
         'userid': userid,
         'zoneid': zoneid,
-        'product': 'mobilelegends',
+        'product': 'magicchessgogo',
         'productid': product_id,
         'time': current_time
     }
@@ -721,7 +721,7 @@ async def query_point_command(update: Update, context: CallbackContext):
         params = {
             'uid': UID,
             'email': EMAIL,
-            'product': 'mobilelegends',
+            'product': 'magicchessgogo',
             'time': current_time
         }
         params['sign'] = calculate_sign(params)
