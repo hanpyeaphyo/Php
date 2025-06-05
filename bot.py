@@ -44,37 +44,78 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+############ Helper function to resolve user identifier ###############
+async def resolve_user_identifier(identifier: str):
+    """
+    Resolves an identifier (Telegram ID or username) to a user_id string and a display name.
+    If the identifier is a numeric ID, it directly returns it.
+    If it's a username, it tries to find the corresponding user_id in the database.
+    Returns (user_id_str, display_name) or (None, None) if username cannot be resolved.
+    """
+    if identifier.isdigit():
+        # It's a numeric ID, directly use it.
+        # For numeric IDs, we can usually send messages even if user hasn't started bot,
+        # but registering means they should interact for username capture.
+        user = await users_collection.find_one({"user_id": identifier})
+        if user:
+            return user['user_id'], user.get('username', identifier) # Return username if available, else ID
+        return identifier, identifier # If ID, but not in DB, return ID anyway for potential registration
+    else:
+        # It's a username (with or without '@')
+        search_username = identifier.lstrip('@')
+        user = await users_collection.find_one({"username": search_username})
+        if user:
+            # Found in database, return its actual user_id and username as display name
+            return user['user_id'], identifier
+        else:
+            # Username not found in database. Cannot resolve to a user_id without prior interaction.
+            # (Telegram API does not allow bot to get user_id from username without prior chat)
+            return None, None
+
+
 ############ General message parts ###############
 
 # Fetch and display user ID
 async def getid_command(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
-    await update.message.reply_text(f"Your Telegram user 🆔 is: {user_id}")
+    user_id = str(update.message.from_user.id) # Ensure user_id is string
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
+        return
+
+    username = update.message.from_user.username
+    display_name = f"@{username}" if username else str(user_id)
+    await update.message.reply_text(f"Your Telegram user is: <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(str(user_id))}</code>)", parse_mode='HTML')
 
 
 async def start_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Telegram user ID
     username = update.message.from_user.username
 
-    # Check if the user exists in the database
+    # Check if the user is registered in the database (by admin)
     user = await users_collection.find_one({"user_id": user_id})
 
     if not user:
-        # Show the introduction message with a Register button
-        not_registered_message = ("<b>WELCOME TO Minhtet Bot</b>\n"
-                                  "<b>Register Now 👇</b>\n")
-        # Add a Register button
-        keyboard = [
-            [InlineKeyboardButton("✅ Register", callback_data="register_user")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
+        # If not registered by admin, inform user.
+        not_registered_message = (
+            "<b>WELCOME TO Minhtet Bot</b>\n\n"
+            "You are not yet registered to use this bot's full features.\n"
+            "Please ask an admin to register you. Your Telegram ID is: <code>{}</code>\n"
+            "You can share this ID with your admin for registration."
+        ).format(html.escape(user_id))
+        
         await update.message.reply_text(
             not_registered_message,
-            parse_mode="HTML",
-            reply_markup=reply_markup
+            parse_mode="HTML"
         )
     else:
+        # If registered, update their username in DB if it changed
+        if user.get('username') != username:
+            await users_collection.update_one({"user_id": user_id}, {"$set": {"username": username}})
+            logger.info(f"Updated username for user {user_id} to {username}")
+
         balance_ph = user.get('balance_ph', 0)
         balance_br = user.get('balance_br', 0)
         existing_user_message = (
@@ -87,61 +128,21 @@ async def start_command(update: Update, context: CallbackContext):
         await update.message.reply_text(existing_user_message, parse_mode="HTML")
 
 
-async def handle_register_user(update: Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer()  # Acknowledge the callback query
-    user_id = str(query.from_user.id)
-
-    # Check if the user is already registered
-    user = await users_collection.find_one({"user_id": user_id})
-    if user:
-        # User is already registered
-        balance_ph = user.get('balance_ph', 0)
-        balance_br = user.get('balance_br', 0)
-        existing_user_message = (
-            "Hi Dear, You are already registered!\n"
-            "Your Current Balances:\n"
-            f"1️⃣ PH Balance : ${balance_ph}\n"
-            f"2️⃣ BR Balance : ${balance_br}\n\n"
-            "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
-        )
-        await query.edit_message_text(existing_user_message, parse_mode="HTML")
-    else:
-        # Register the user
-        new_user = {
-            "user_id": user_id,
-            "balance_ph": 0,  # Initialize PH balance
-            "balance_br": 0,  # Initialize BR balance
-            "date_joined": int(time.time())
-        }
-        await users_collection.insert_one(new_user)
-
-        # Send a successful registration message
-        success_message = (
-            "🎉 <b>Registration Successful!</b>\n"
-            "You are now registered in our system. Welcome to our services!\n"
-            "Your current balances:\n"
-            "PH Balance : \$0\n"
-            "BR Balance : \$0\n\n"
-            "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
-        )
-        await query.edit_message_text(success_message, parse_mode="HTML")
+# handle_register_user callback is removed as self-registration is disabled
 
 
 async def help_command(update: Update, context: CallbackContext):
-    username = update.message.from_user.username
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
-
-    # Check if the user is registered in the database
-    user = await users_collection.find_one({"user_id": user_id})
-
-    if not user:
-        # If the user is not found in the database
-        await update.message.reply_text("ဆက်သွယ်ရန်😘😘@minhtet4604 ")
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
         return
 
+    username = update.message.from_user.username
     help_message = f"""
-<b>HELLO</b> {username} 🤖
+<b>HELLO</b> {html.escape(str(username))} 🤖
 
 Please Contact admin ☺️
 @minhtet4604
@@ -152,15 +153,15 @@ Please Contact admin ☺️
 
 /his - <b>Orders History</b>
 
-/role - <b>Check Username MAGIC CHESS GOGO</b>
+/role - <b>Check Username MLBB</b>
 
 /getid - <b>Account ID</b>
 
 /price - <b>Price List</b>
 
-/mgcp - <b>Order PH</b>
+/mmp - <b>Order PH</b>
 
-/mgcb - <b>Order BR</b>
+/mmb - <b>Order BR</b>
 
     """
     try:
@@ -174,60 +175,40 @@ Please Contact admin ☺️
 
 async def price_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
-
-    # Check if the user is registered in the database
-    user = await users_collection.find_one({"user_id": user_id})
-
-    if not user:
-        await update.message.reply_text("ဆက်သွယ်ရန် 🥰🥰 @minhtet4604")
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
         return
 
     # Define the merged price list
     price_list = """
 <b>Pack List (PH and BR):</b>
 
-🇧🇷
-Bonus Pack
-55 = 40 🪙
-165=120 🪙
-275=200 🪙
-565=400 🪙
-wdp - 97.9 🪙
+<b>🇵🇭 Philippines:</b>
+    11 - diamond 11
+    22 - diamond 22
+    56 - diamond 56
+    112 - diamond 112
+    223 - diamond 223
+    336 - diamond 336
+    570 - diamond 570
+    1163 - diamond 1163
+    2398 - diamond 2398
+    6042 - diamond 6042
+    wdp - diamond 95
 
-💎86  = 62.5 🪙
-💎172 =125 🪙
-💎257  =187 🪙
-💎344  =250 🪙
-💎516  =375 🪙
-💎706 =500 🪙
-💎1346 =937.5 🪙
-💎1825 =1250 🪙
-💎2195 =1500 🪙
-💎3688=2500 🪙 
-💎5532 =3750 🪙
-💎9288=6250 🪙
+<b>🇧🇷 Brazil:</b>
+    svp: \$39.00
+    55: \$39.00
+    165: \$116.90
+    275: \$187.50
+    565: \$385.00
+    wkp: \$76.00
+    twilight: \$402.50
 
-
-🇵🇭
-
-Bonus Pack
-55=48.95 🪙
-165=145.04 🪙
-275=241.08 🪙
-565=488.04 🪙
-wdp= 98🪙
-
-💎5=4.9 🪙
-💎11=9.31 🪙
-💎22=18.62 🪙
-💎56= 46.55 🪙
-💎112= 93.1 🪙
-💎223= 186.2 🪙
-💎339= 279.3 🪙
-💎570= 465.5🪙
-💎1163=931🪙
-💎2398= 1862🪙
-💎6042= 4655🪙"""
+For more details, contact admin."""
     await update.message.reply_text(price_list, parse_mode='HTML')
 
 
@@ -241,7 +222,7 @@ async def admin_command(update: Update, context: CallbackContext):
         return
 
     help_message = f"""
-<b>Hello Admin</b> {username}
+<b>Hello Admin</b> {html.escape(str(username))}
 <b>You can use below commands :</B>
 
 1️⃣<b>Admin Mode</b>:
@@ -249,18 +230,24 @@ async def admin_command(update: Update, context: CallbackContext):
  /user - <b>User List</b>
  /all_his - <b>All Order History</b>
 
-2️⃣ <b>Wallet Topup:</b>
+2️⃣ <b>User Management:</b>
+ /registeruser &lt;user_id_or_username&gt; - <b>Register a new user</b>
+   (Example: <code>/registeruser @someuser</code> or <code>/registeruser 1234567890</code>)
+ /removeuser &lt;user_id_or_username&gt; - <b>Remove an existing user</b>
+   (Example: <code>/removeuser @someuser</code> or <code>/removeuser 1234567890</code>)
+
+3️⃣ <b>Wallet Topup:</b>
 
 Ask to user for telegram_id Press
 /getid
 
 Added
-/add_bal 1836389511 500 balance_ph
-/add_bal telegram_id amount balance_type
+/add_bal &lt;user_id_or_username&gt; &lt;amount&gt; &lt;balance_type&gt;
+(Example: <code>/add_bal @username 500 balance_ph</code>)
 
 Deducted
-/ded_bal 1836389511 500 balance_br
-/ded_bal telegram_id amount balance_type
+/ded_bal &lt;user_id_or_username&gt; &lt;amount&gt; &lt;balance_type&gt;
+(Example: <code>/ded_bal telegram_id 500 balance_br</code>)
     """
 
     try:
@@ -270,6 +257,127 @@ Deducted
     except Exception as e:
         logger.error("Failed to send help message: %s", e)
         await update.message.reply_text("An error occurred while sending the help message.")
+
+
+# New Admin Command to Register Users
+async def register_user_by_admin_command(update: Update, context: CallbackContext):
+    admin_user_id = str(update.message.from_user.id)
+    if int(admin_user_id) not in admins:
+        await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("*Usage*: `/registeruser <user_id_or_username>`. Example: `/registeruser @someuser` or `/registeruser 1234567890`", parse_mode='Markdown')
+        return
+
+    identifier = context.args[0]
+    # resolve_user_identifier will return (identifier, identifier) if it's a numeric ID not in DB yet,
+    # or (None, None) if it's an unresolved username.
+    target_user_id, display_name = await resolve_user_identifier(identifier)
+    
+    # If the identifier was a username and it couldn't be resolved from DB, then it's an issue.
+    if target_user_id is None and not identifier.isdigit():
+        await update.message.reply_text(f"❌ *Error*: Cannot register user <b>{html.escape(identifier)}</b>. If it's a username, the user must have interacted with the bot at least once (e.g., by sending /start) for their ID to be recorded. Please ask them to send /start first or provide their numeric Telegram ID.", parse_mode='HTML')
+        return
+    
+    # If it's a numeric ID, display_name might just be the ID. Try to get their username from Telegram if possible.
+    if target_user_id is not None and identifier.isdigit():
+        try:
+            chat_member = await context.bot.get_chat_member(chat_id=target_user_id, user_id=target_user_id)
+            if chat_member.user.username:
+                display_name = f"@{chat_member.user.username}"
+            elif chat_member.user.full_name:
+                display_name = chat_member.user.full_name
+            else:
+                display_name = str(target_user_id)
+        except Exception as e:
+            logger.warning(f"Could not get chat member info for ID {target_user_id}: {e}")
+            display_name = str(target_user_id) # Fallback to ID
+
+
+    # Check if user is already registered
+    existing_user = await users_collection.find_one({"user_id": target_user_id})
+    if existing_user:
+        existing_username = existing_user.get('username')
+        existing_display_name_from_db = f"@{existing_username}" if existing_username else target_user_id
+        await update.message.reply_text(f"✅ User <b>{html.escape(existing_display_name_from_db)}</b> (ID: <code>{html.escape(target_user_id)}</code>) is already registered.", parse_mode='HTML')
+        
+        # Always update username if a new one is available or changed
+        if display_name.startswith('@') and existing_username != display_name.lstrip('@'):
+            await users_collection.update_one({"user_id": target_user_id}, {"$set": {"username": display_name.lstrip('@')}})
+            logger.info(f"Updated username for existing user {target_user_id} to {display_name.lstrip('@')}")
+        return
+
+    # Register the user
+    new_user_data = {
+        "user_id": target_user_id,
+        "username": display_name.lstrip('@') if display_name.startswith('@') else None, # Store username if it was from username or resolved display_name
+        "balance_ph": 0,
+        "balance_br": 0,
+        "date_joined": int(time.time())
+    }
+    await users_collection.insert_one(new_user_data)
+
+    admin_conf_msg = f"🎉 User <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>) has been successfully registered."
+    await update.message.reply_text(admin_conf_msg, parse_mode='HTML')
+
+    # Attempt to send welcome message to the newly registered user
+    user_welcome_msg = (
+        f"🎉 Congratulations! You have been registered by an admin and can now use the bot.\n\n"
+        f"Your current balances:\n"
+        f"PH Balance : \$0\n"
+        f"BR Balance : \$0\n\n"
+        f"Please press /help for how to use the bot."
+    )
+    try:
+        await context.bot.send_message(chat_id=target_user_id, text=user_welcome_msg, parse_mode='HTML')
+        logger.info(f"Successfully sent welcome message to new user {target_user_id}")
+    except Exception as e:
+        logger.warning(f"Could not send welcome message to new user {target_user_id}: {e}. User might not have started the bot or blocked it.")
+        await update.message.reply_text(f"⚠️ Warning: Could not send welcome message to user <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>). They might not have started the bot or blocked it.", parse_mode='HTML')
+
+
+# New Admin Command to Remove Users
+async def remove_user_by_admin_command(update: Update, context: CallbackContext):
+    admin_user_id = str(update.message.from_user.id)
+    if int(admin_user_id) not in admins:
+        await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("*Usage*: `/removeuser <user_id_or_username>`. Example: `/removeuser @someuser` or `/removeuser 1234567890`", parse_mode='Markdown')
+        return
+
+    identifier = context.args[0]
+    target_user_id, display_name = await resolve_user_identifier(identifier)
+
+    if target_user_id is None:
+        await update.message.reply_text(f"❌ *User Not Found*: Cannot resolve user <b>{html.escape(identifier)}</b>. If it's a username, the user must have interacted with the bot at least once for the bot to record their ID.", parse_mode='HTML')
+        return
+
+    # Attempt to delete the user from the database
+    delete_result = await users_collection.delete_one({"user_id": target_user_id})
+
+    if delete_result.deleted_count > 0:
+        admin_conf_msg = f"🗑️ User <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>) has been successfully removed from the database."
+        await update.message.reply_text(admin_conf_msg, parse_mode='HTML')
+
+        # Attempt to send notification message to the removed user
+        user_notification_msg = (
+            f"🚫 You have been removed from the bot's registered users by an admin.\n\n"
+            f"You will no longer be able to use the bot's features unless an admin re-registers you.\n"
+            f"Please contact @minhtet4604 for more information."
+        )
+        try:
+            await context.bot.send_message(chat_id=target_user_id, text=user_notification_msg, parse_mode='HTML')
+            logger.info(f"Successfully sent removal notification to user {target_user_id}")
+        except Exception as e:
+            logger.warning(f"Could not send removal notification to user {target_user_id}: {e}. User might have blocked the bot or chat ID is invalid.")
+            await update.message.reply_text(f"⚠️ Warning: Could not send removal notification to user <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>). They might have blocked the bot or chat ID is invalid.", parse_mode='HTML')
+    else:
+        # User not found in DB
+        await update.message.reply_text(f"❌ User <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>) was not found in the database. No user was removed.", parse_mode='HTML')
+
 
 
 async def get_balance(user_id: str):
@@ -287,12 +395,11 @@ async def get_balance(user_id: str):
 
 async def balance_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Convert user_id to string
-
-    user = await users_collection.find_one({"user_id": user_id})
-
-    if not user:
-        # If the user is not found in the database
-        await update.message.reply_text("ဆက်သွယ်ရန် @minhtet4604 ")
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
         return
 
     balances = await get_balance(user_id)  # Await the async get_balance function
@@ -310,7 +417,8 @@ async def balance_command(update: Update, context: CallbackContext):
 
         await update.message.reply_text(response_message, parse_mode='Markdown')
     else:
-        await update.message.reply_text("ဆက်သွယ်ရန်@minhtet4604")
+        # This else is unlikely if the initial check passes, but good for safety
+        await update.message.reply_text("Error: Could not retrieve your balance. Please try again later.", parse_mode='Markdown')
 
 
 async def update_balance(user_id: str, amount: int, balance_type: str):
@@ -329,7 +437,7 @@ async def update_balance(user_id: str, amount: int, balance_type: str):
 
 async def add_balance_command(update: Update, context: CallbackContext):
     """
-    Command to add balance to a user's account.
+    Command to add balance to a user's account by ID or username.
     """
     admin_user_id = str(update.message.from_user.id)  # Get the user ID of the admin issuing the command
 
@@ -338,112 +446,151 @@ async def add_balance_command(update: Update, context: CallbackContext):
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
-    # Expecting three arguments: target_user_id, amount, balance_type
+    # Expecting three arguments: identifier (ID or username), amount, balance_type
     if len(context.args) != 3 or not context.args[1].isdigit() or context.args[2] not in ['balance_ph', 'balance_br']:
         await update.message.reply_text(
-            "*Usage*: `/add_bal <user_id> <amount> <balance_type>` balance_type should be either balance_ph or balance_br",
+            "*Usage*: `/add_bal <user_id_or_username> <amount> <balance_type>` balance_type should be either balance_ph or balance_br. Example: `/add_bal @someuser 100 balance_ph`",
             parse_mode='Markdown'
         )
         return
 
-    target_user_id = context.args[0]  # The user ID to add balance to
-    amount = int(context.args[1])  # The amount to add
+    identifier = context.args[0]
+    amount = int(context.args[1])
     balance_type = context.args[2]
 
-    # Check if the target user exists in the database
-    target_user = await users_collection.find_one({"user_id": target_user_id})
-    if not target_user:
-        await update.message.reply_text(f"❌ *User Not Found*: No user with ID `{target_user_id}` found.", parse_mode='Markdown')
+    # Resolve target user ID and display name
+    target_user_id, display_name = await resolve_user_identifier(identifier)
+
+    if target_user_id is None:
+        await update.message.reply_text(f"❌ *User Not Found*: Cannot resolve user <b>{html.escape(identifier)}</b>. If it's a username, the user must have started the bot at least once for the bot to record their ID.", parse_mode='HTML')
         return
+    
+    # Ensure the target user is registered in the database (by admin) before adding balance
+    target_user_db_entry = await users_collection.find_one({"user_id": target_user_id})
+    if not target_user_db_entry:
+        await update.message.reply_text(f"❌ *User Not Registered*: User <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>) is not registered by an admin. Please register them first using <code>/registeruser {html.escape(identifier)}</code>.", parse_mode='HTML')
+        return
+
 
     # Add the balance to the target user
     try:
         new_balance = await update_balance(target_user_id, amount, balance_type)
 
         if new_balance is not None:
-            # Success message with formatting using HTML parse mode
-            success_message_text = (
-                f"✅ <b>Success!</b> Added <code>{html.escape(str(amount))}</code> to <b>User ID</b> <code>{html.escape(str(target_user_id))}</code>'s {html.escape(balance_type)}.\n\n"
+            # Message for Admin
+            admin_success_message_text = (
+                f"✅ <b>Success!</b> Added <code>{html.escape(str(amount))}</code> to <b>User</b> <code>{html.escape(display_name)}</code>'s ({html.escape(target_user_id)}) {html.escape(balance_type)}.\n\n"
                 f"🇲🇲 New Balance: <code>{html.escape(str(new_balance))}</code> 🪙"
             )
             try:
-                await update.message.reply_text(success_message_text, parse_mode='HTML')
-                logger.info(f"Successfully sent add_balance success message for user {target_user_id}")
+                await update.message.reply_text(admin_success_message_text, parse_mode='HTML')
+                logger.info(f"Successfully sent add_balance success message to admin for user {target_user_id}")
             except Exception as send_error:
-                logger.error(f"Error sending add_balance success message to user {target_user_id}: {send_error}")
-                # Fallback to plain text message if HTML fails
-                await update.message.reply_text("✅ Success! Balance updated.", parse_mode=None)
+                logger.error(f"Error sending add_balance success message to admin for user {target_user_id}: {send_error}")
+                await update.message.reply_text("✅ Success! Balance updated (admin notification failed).", parse_mode=None)
+
+            # Message for the Target User
+            user_notification_message_text = (
+                f"🎉 Your balance has been topped up!\n"
+                f"Amount added: <code>{html.escape(str(amount))}</code>\n"
+                f"Your new {html.escape(balance_type.replace('balance_ph', 'PH Balance').replace('balance_br', 'BR Balance'))}: <code>{html.escape(str(new_balance))}</code> 🪙\n\n"
+                f"Please contact @minhtet4604 if you have any questions."
+            )
+            try:
+                await context.bot.send_message(chat_id=target_user_id, text=user_notification_message_text, parse_mode='HTML')
+                logger.info(f"Successfully sent balance top-up notification to user {target_user_id}")
+            except Exception as user_send_error:
+                logger.error(f"Error sending balance top-up notification to user {target_user_id}: {user_send_error}")
+                # This error means the user might have blocked the bot or the chat ID is invalid.
+                await update.message.reply_text(f"⚠️ Warning: Could not send notification to user <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>). They might have blocked the bot or chat ID is invalid.", parse_mode='HTML')
+
         else:
              # This case should ideally not be reached if target_user exists and update_balance logic is correct
-             await update.message.reply_text(f"❌ *Failed*: Unable to update balance for *User ID* `{target_user_id}`.", parse_mode='Markdown')
+             await update.message.reply_text(f"❌ *Failed*: Unable to update balance for *User* <b>{html.escape(display_name)}</b>.", parse_mode='HTML')
     except Exception as general_error:
         # Catch other potential errors before sending the success message
         logger.error(f"Error during add_balance command for user {target_user_id}: {general_error}")
-        await update.message.reply_text(f"An error occurred while adding balance for user ID `{target_user_id}`.", parse_mode='Markdown')
+        await update.message.reply_text(f"An error occurred while adding balance for user <b>{html.escape(display_name)}</b>.", parse_mode='HTML')
 
 
 
 async def deduct_balance_command(update: Update, context: CallbackContext):
     """
-    Command to deduct balance from a user's account.
+    Command to deduct balance from a user's account by ID or username.
     """
-    user_id = str(update.message.from_user.id)  # Get the user ID of the person issuing the command
+    admin_user_id = str(update.message.from_user.id)  # Get the user ID of the admin issuing the command
 
     # Check if the user is an admin
-    if int(user_id) not in admins:
-        await update.message.reply_text(
-            "🚫 *Unauthorized*: You are not allowed to use this command.",
-            parse_mode='Markdown'
-        )
+    if int(admin_user_id) not in admins:
+        await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
-    # Expecting three arguments: target_user_id, amount, balance_type
+    # Expecting three arguments: identifier (ID or username), amount, balance_type
     if len(context.args) != 3 or not context.args[1].isdigit() or context.args[2] not in ['balance_ph', 'balance_br']:
         await update.message.reply_text(
-            "*Usage*: `/ded_bal <user_id> <amount> <balance_type>` balance_type should be either balance_ph or balance_br",
+            "*Usage*: `/ded_bal <user_id_or_username> <amount> <balance_type>` balance_type should be either balance_ph or balance_br. Example: `/ded_bal @someuser 50 balance_br`",
             parse_mode='Markdown'
         )
         return
 
-    target_user_id = context.args[0]  # The user ID to deduct balance from
-    amount = int(context.args[1])  # The amount to deduct
+    identifier = context.args[0]
+    amount = int(context.args[1])
     balance_type = context.args[2]
 
-    # Check if the target user exists in the database
-    target_user = await users_collection.find_one({"user_id": target_user_id})
-    if not target_user:
-        await update.message.reply_text(
-            f"❌ *User Not Found*: No user with ID `{target_user_id}` found.",
-            parse_mode='Markdown'
-        )
+    # Resolve target user ID and display name
+    target_user_id, display_name = await resolve_user_identifier(identifier)
+
+    if target_user_id is None:
+        await update.message.reply_text(f"❌ *User Not Found*: Cannot resolve user <b>{html.escape(identifier)}</b>. If it's a username, the user must have started the bot at least once for the bot to record their ID.", parse_mode='HTML')
         return
+    
+    # Ensure the target user is registered in the database (by admin) before deducting balance
+    target_user_db_entry = await users_collection.find_one({"user_id": target_user_id})
+    if not target_user_db_entry:
+        await update.message.reply_text(f"❌ *User Not Registered*: User <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>) is not registered by an admin. Please register them first using <code>/registeruser {html.escape(identifier)}</code>.", parse_mode='HTML')
+        return
+
 
     # Deduct the balance from the target user
     try:
         new_balance = await update_balance(target_user_id, -amount, balance_type)
 
         if new_balance is not None:
-            # Success message with formatting using HTML parse mode
-            success_message_text = (
-                f"✅ <b>Success!</b> Deducted <code>{html.escape(str(amount))}</code> from <b>User ID</b> <code>{html.escape(str(target_user_id))}</code>'s {html.escape(balance_type)}.\n\n"
+            # Message for Admin
+            admin_success_message_text = (
+                f"✅ <b>Success!</b> Deducted <code>{html.escape(str(amount))}</code> from <b>User</b> <code>{html.escape(display_name)}</code>'s ({html.escape(target_user_id)}) {html.escape(balance_type)}.\n\n"
                 f"💵 New Balance: <code>{html.escape(str(new_balance))}</code> 🪙"
             )
             try:
-                await update.message.reply_text(success_message_text, parse_mode='HTML')
-                logger.info(f"Successfully sent deduct_balance success message for user {target_user_id}")
+                await update.message.reply_text(admin_success_message_text, parse_mode='HTML')
+                logger.info(f"Successfully sent deduct_balance success message to admin for user {target_user_id}")
             except Exception as send_error:
-                logger.error(f"Error sending deduct_balance success message to user {target_user_id}: {send_error}")
-                 # Fallback to plain text message if HTML fails
-                await update.message.reply_text("✅ Success! Balance updated.", parse_mode=None)
+                logger.error(f"Error sending deduct_balance success message to admin for user {target_user_id}: {send_error}")
+                await update.message.reply_text("✅ Success! Balance updated (admin notification failed).", parse_mode=None)
+
+            # Message for the Target User
+            user_notification_message_text = (
+                f"⚠️ Your balance has been deducted!\n"
+                f"Amount deducted: <code>{html.escape(str(amount))}</code>\n"
+                f"Your new {html.escape(balance_type.replace('balance_ph', 'PH Balance').replace('balance_br', 'BR Balance'))}: <code>{html.escape(str(new_balance))}</code> 🪙\n\n"
+                f"Please contact @minhtet4604 if you have any questions."
+            )
+            try:
+                await context.bot.send_message(chat_id=target_user_id, text=user_notification_message_text, parse_mode='HTML')
+                logger.info(f"Successfully sent balance deduction notification to user {target_user_id}")
+            except Exception as user_send_error:
+                logger.error(f"Error sending balance deduction notification to user {target_user_id}: {user_send_error}")
+                await update.message.reply_text(f"⚠️ Warning: Could not send notification to user <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(target_user_id)}</code>). They might have blocked the bot or chat ID is invalid.", parse_mode='HTML')
+
         else:
              # This case should be for insufficient balance based on update_balance logic
             await update.message.reply_text(
-                f"❌ *Failed*: Insufficient balance for *User ID* `{target_user_id}` or deduction failed.",
-                parse_mode='Markdown'
+                f"❌ *Failed*: Insufficient balance for *User* <b>{html.escape(display_name)}</b> or deduction failed.",
+                parse_mode='HTML'
             )
     except Exception as general_error:
         logger.error(f"Error deducting balance: {general_error}")
-        await update.message.reply_text(f"An error occurred while deducting balance for user ID `{target_user_id}`.", parse_mode='Markdown')
+        await update.message.reply_text(f"An error occurred while deducting balance for user <b>{html.escape(display_name)}</b>.", parse_mode='HTML')
 
 
 def split_message(text, max_length=4096):
@@ -452,7 +599,7 @@ def split_message(text, max_length=4096):
 
 
 async def get_users_command(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id  # Get the user ID of the person issuing the command
+    user_id = str(update.message.from_user.id)  # Get the user ID of the person issuing the command
 
     # Check if the user is an admin
     if user_id not in admins:
@@ -470,7 +617,9 @@ async def get_users_command(update: Update, context: CallbackContext):
     # Prepare the response message
     response_summary = "User Details: 📋\n\n"
     for user in users_list:
-        user_id = user.get('user_id', 'N/A')
+        db_user_id = user.get('user_id', 'N/A')
+        db_username = user.get('username') # Get username from DB
+        display_name = f"@{db_username}" if db_username else str(db_user_id) # Prefer username, else ID
         balance_ph = user.get('balance_ph', 0)
         balance_br = user.get('balance_br', 0)
         # Format date joined to 12-hour format
@@ -480,7 +629,7 @@ async def get_users_command(update: Update, context: CallbackContext):
 
         # Enhance the output with clear formatting
         response_summary += (
-            f"🆔 USER ID: {html.escape(str(user_id))}\n" # Escape user ID
+            f"🆔 User: <b>{html.escape(display_name)}</b> (ID: <code>{html.escape(str(db_user_id))}</code>)\n" # Display username then ID
             f" PH BALANCE : ${balance_ph:.2f}\n"
             f" BR BALANCE : ${balance_br:.2f}\n"
             f"📅 DATE JOINED: {date_joined_formatted}\n" # Use 12-hour formatted date
@@ -501,6 +650,15 @@ async def get_users_command(update: Update, context: CallbackContext):
 
 async def get_user_orders(update: Update, context: CallbackContext):
     sender_user_id = str(update.message.from_user.id)  # Get the Telegram user's ID
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": sender_user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
+        return
+
+    sender_user_db = await users_collection.find_one({"user_id": sender_user_id})
+    sender_display_name = f"@{sender_user_db['username']}" if sender_user_db and sender_user_db.get('username') else sender_user_id
 
     # Query both collections for orders made by this sender
     transactions_cursor = order_collection.find(
@@ -509,12 +667,12 @@ async def get_user_orders(update: Update, context: CallbackContext):
     # Convert the cursors to lists asynchronously
     transactions_list = await transactions_cursor.to_list(length=None)
 
-    response_summary = "==== Order History ====\n\n"
+    response_summary = f"==== Order History for <b>{html.escape(sender_display_name)}</b> ====\n\n"
 
     # Process orders from transactions_collection
     for order in transactions_list:
-        sender_user_id = order.get('sender_user_id', 'N/A')
-        user_id = order.get('player_id', 'N/A')
+        db_sender_user_id = order.get('sender_user_id', 'N/A')
+        player_id = order.get('player_id', 'N/A')
         zone_id = order.get('zone_id', 'N/A')
         pack = order.get('product_name', 'N/A')
         order_ids = order.get('order_ids', 'N/A')
@@ -545,12 +703,16 @@ async def get_user_orders(update: Update, context: CallbackContext):
         else:
             order_ids = str(order_ids)
 
+        # Look up username for player_id if available in DB
+        player_db_entry = await users_collection.find_one({"user_id": str(player_id)})
+        player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
+
         response_summary += (
-            f"🆔 Telegram ID: {html.escape(str(sender_user_id))}\n" # Escape sender user ID
-            f"📍 Game ID: {html.escape(str(user_id))}\n" # Escape user ID
+            f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n" # Display user's username
+            f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n" # Escape user ID
             f"🌍 Zone ID: {html.escape(str(zone_id))}\n" # Escape zone ID
             f"💎 Pack: {html.escape(str(pack))}\n" # Escape pack
-            f"🆔 Order ID: {html.escape(str(order_ids))}\n" # Escape order IDs
+            f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
             f"📅 Date: {formatted_date}\n" # Use formatted_date
             f"💵 Rate: $ {float(total_cost):.2f}\n"
             f"🔄 Status: {html.escape(str(status))}\n\n" # Escape status
@@ -616,12 +778,20 @@ async def get_all_orders(update: Update, context: CallbackContext):
             else:
                 order_ids = str(order_ids)
 
+            # Look up username for sender_user_id and player_id if available in DB
+            sender_db_entry = await users_collection.find_one({"user_id": str(sender_user_id)})
+            sender_display_name = f"@{sender_db_entry['username']}" if sender_db_entry and sender_db_entry.get('username') else str(sender_user_id)
+
+            player_db_entry = await users_collection.find_one({"user_id": str(player_id)})
+            player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
+
+
             response_summary += (
-                f"🆔 Sender Telegram ID: {html.escape(str(sender_user_id))}\n" # Escape sender user ID
-                f"🎮 Player ID: {html.escape(str(player_id))}\n" # Escape player ID
+                f"🆔 Sender: <b>{html.escape(sender_display_name)}</b> (ID: <code>{html.escape(str(sender_user_id))}</code>)\n" # Display sender username/ID
+                f"🎮 Player: <b>{html.escape(player_display_name)}</b> (ID: <code>{html.escape(str(player_id))}</code>)\n" # Display player username/ID
                 f"🌍 Zone ID: {html.escape(str(zone_id))}\n" # Escape zone ID
                 f"💎 Product: {html.escape(str(product_name))}\n" # Escape product name
-                f"🆔 Order IDs: {html.escape(str(order_ids))}\n" # Escape order IDs
+                f"🆔 Order IDs: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
                 f"📅 Date: {formatted_date}\n" # Use formatted_date
                 f"💵 Total Cost: $ {float(total_cost):.2f}\n"
                 f"🔄 Status: {html.escape(str(status))}\n\n" # Escape status
@@ -679,13 +849,11 @@ async def get_role_info(userid: str, zoneid: str, product_id: str = DEFAULT_PROD
 
 async def role_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
-
-    # Check if the user is registered in the database
-    user = await users_collection.find_one({"user_id": user_id})
-
-    if not user:
-        # If the user is not found in the database
-        await update.message.reply_text("ဆက်သွယ်ရန် @minhtet4604")
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
         return
 
     args = context.args
@@ -700,7 +868,7 @@ async def role_command(update: Update, context: CallbackContext):
         reply_message = (
             f"<b>=== အချက်အလက် ===</b>\n"
             f"<b>အသုံးပြုသူ:</b> {html.escape(str(username))}\n" # Escape username
-            f"<b>  အိုင်ဒီ        :</b> {html.escape(str(userid))}\n" # Escape user ID
+            f"<b>  အိုင်ဒီ        :</b> <code>{html.escape(str(userid))}</code>\n" # Escape user ID
             f"<b>  ဆာဗာ        :</b> {html.escape(str(zoneid))}" # Escape zone ID
         )
         await update.message.reply_text(reply_message, parse_mode='HTML')  # Use HTML for formatting
@@ -759,45 +927,58 @@ async def query_point_command(update: Update, context: CallbackContext):
 
 
 product_info_ph = {
-    "55": {"id": "23918", "rate": 48.95},
-    "165": {"id": "23919", "rate": 145.04},
-    "275": {"id": "23920", "rate": 241.08},
-    "565": {"id": "23921", "rate": 488.04},
-    "5": {"id": "23906", "rate": 4.90},
-    "11": {"id": "23907", "rate": 9.31},
-    "22": {"id": "23908", "rate": 18.62},
-    "56": {"id": "23909", "rate": 46.55},
-    "112": {"id": "23910", "rate": 93.10},
-    "223": {"id": "23911", "rate": 186.20},
-    "336": {"id": "23912", "rate": 279.30},
-    "570": {"id": "23913", "rate": 465.50},
-    "1163": {"id": "23914", "rate": 931.00},
-    "2398": {"id": "23915", "rate": 1862.00},
-    "6042": {"id": "23916", "rate": 4655.00},
-    "wdp": {"id": "23922", "rate": 98.00},
-    
+    "11": {"id": "212", "rate": 9.50},
+    "22": {"id": "213", "rate": 19.00},
+    "56": {"id": "214", "rate": 47.50},
+    "112": {"id": "215", "rate": 95.00},
+    "223": {"id": "216", "rate": 190.00},
+    "336": {"id": "217", "rate": 285.00},
+    "570": {"id": "218", "rate": 475.00},
+    "1163": {"id": "219", "rate": 950.00},
+    "2398": {"id": "220", "rate": 1900.00},
+    "6042": {"id": "221", "rate": 4750.00},
+    "wdp": {"id": "16641", "rate": 95.00},
 }
 
 product_info_br = {
-    
-    "55": {"id": "23837", "rate": 40.00},
-    "165": {"id": "23838", "rate": 120.00},
-    "275": {"id": "23839", "rate": 200.00},
-    "565": {"id": "23840", "rate": 400.00},
-    "86": {"id": "23825", "rate": 62.50},
-    "172": {"id": "23826", "rate": 125.00},
-    "257": {"id": "23827", "rate": 187.000},
-    "344": {"id": "23828", "rate": 250.00},
-    "516": {"id": "23829", "rate": 375.00},
-    "706": {"id": "23830", "rate": 500.00},
-    "1346": {"id": "23831", "rate": 937.50},
-    "1825": {"id": "23832", "rate": 1250.00},
-    "2195": {"id": "23833", "rate": 1500.00},
-    "3688": {"id": "23834", "rate": 2500.00},
-    "5532": {"id": "23835", "rate": 3750.00},
-    "9288": {"id": "23836", "rate": 6250.00},
-    "wdp": {"id": "23841", "rate": 97.90},
-    }
+    "svp": {"id": "22594", "rate": 39.00},
+    "55": {"id": "22590", "rate": 39.00},
+    "165": {"id": "22591", "rate": 116.90},
+    "275": {"id": "22592", "rate": 187.50},
+    "565": {"id": "22593", "rate": 385.00},
+    "86": {"id": "13", "rate": 61.50},
+    "172": {"id": "23", "rate": 122.00},
+    "257": {"id": "25", "rate": 177.50},
+    "706": {"id": "26", "rate": 480.00},
+    "2195": {"id": "27", "rate": 1453.00},
+    "3688": {"id": "28", "rate": 2424.00},
+    "5532": {"id": "29", "rate": 3660.00},
+    "9288": {"id": "30", "rate": 6079.00},
+    "twilight": {"id": "33", "rate": 402.50},
+    "wkp": {"id": "16642", "rate": 76.00},
+    "343": {"id": ["13", "25"], "rate": 239.00},
+    "344": {"id": ["23", "23"], "rate": 244.00},
+    "429": {"id": ["23", "25"], "rate": 299.00},
+    "514": {"id": ["25", "25"], "rate": 355.00},
+    "600": {"id": ["25", "25", "13"], "rate": 416.00},
+    "792": {"id": ["26", "13"], "rate": 541.00},
+    "878": {"id": ["26", "23"], "rate": 602.00},
+    "963": {"id": ["26", "25"], "rate": 657.00},
+    "1049": {"id": ["26", "25", "13"], "rate": 719.00},
+    "1135": {"id": ["26", "25", "23"], "rate": 779.00},
+    "1220": {"id": ["26", "25", "25"], "rate": 835.00},
+    "1412": {"id": ["26", "26"], "rate": 960.00},
+    "1584": {"id": ["26", "26", "23"], "rate": 1082.00},
+    "1755": {"id": ["26", "26", "25", "13"], "rate": 1199.00},
+    "2901": {"id": ["27", "26"], "rate": 1940.00},
+    "4390": {"id": ["27", "27"], "rate": 2906.00},
+    "11483": {"id": ["30", "27"], "rate": 7532.00},
+    "wkp2": {"id": ["16642", "16642"], "rate": 152.00},
+    "wkp3": {"id": ["16642", "16642", "16642"], "rate": 228.00},
+    "wkp4": {"id": ["16642", "16642", "16642", "16642"], "rate": 304.00},
+    "wkp5": {"id": ["16642", "16642", "16642", "16642", "16642"], "rate": 380.00},
+    "wkp10": {"id": ["16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642", "16642"], "rate": 760.00},
+}
 
 
 async def create_order_and_log(region: str, userid: str, zoneid: str, product_id: str):
@@ -835,16 +1016,16 @@ async def create_order_and_log(region: str, userid: str, zoneid: str, product_id
 
 async def bulk_command(update: Update, context: CallbackContext, region: str, product_info: dict, balance_type: str):
     user_id = str(update.message.from_user.id)  # Get the user ID as a string
-
-    # Check if the user is registered in the database
-    user = await users_collection.find_one({"user_id": user_id})
-    if not user:
-        await update.message.reply_text("ဆက်သွယ်ရန် @minhtet4604")
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
         return
 
     args = context.args
 
-    command = 'mgcb' if region == 'br' else 'mgcp'
+    command = 'mmb' if region == 'br' else 'mmp'
 
     # Security: Check for multiple commands in one input
     if len(update.message.text.split(f'/{command}')) > 2:
@@ -870,14 +1051,14 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             await update.message.reply_text('Invalid input. Make sure to provide user ID, zone ID, and product name for each order.')
             return
 
-        user_id, zone_id, product_name = args[i:i+3]
+        user_id_str, zone_id, product_name = args[i:i+3] # user_id_str here is just the ID as a string
         product_name = product_name.lower()  # Ensure the product name is in lowercase
 
         # Check if the product name is valid
         product = product_info.get(product_name)
         if not product:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id)}\n" # Escape user ID
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
                 f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
                 f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
                 f"<b>Results</b>: Invalid Product\n\n"
@@ -888,14 +1069,14 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         product_rate = product["rate"]
         if product_rate is None:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id)}\n" # Escape user ID
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
                 f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
                 f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
                 f"<b>Results:</b> Product rate not available\n\n"
             )
             continue
         order_requests.append({
-            "user_id": user_id,
+            "user_id": user_id_str,
             "zone_id": zone_id,
             "product_name": product_name,
             "product_rate": product_rate,
@@ -907,19 +1088,22 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         return
 
     # Check if the user has sufficient balance
-    current_balance = await get_balance(sender_user_id)
-    if current_balance is None:
+    current_balance_dict = await get_balance(sender_user_id) # Get the full balance dictionary
+    if current_balance_dict is None:
         print(f"[ERROR] Sender wallet balance not found for User ID: {sender_user_id}")
         await loading_message.edit_text("ဆက်သွယ်ရန် @minhtet4604")
         return
+    
+    current_available_balance = current_balance_dict.get(balance_type, 0)
+
     # Calculate total cost of all valid orders
     total_cost = sum(order['product_rate'] for order in order_requests)
 
     # Check if the user's balance is sufficient for the total cost
-    if current_balance[balance_type] < total_cost:
-        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_balance[balance_type]}")
+    if current_available_balance < total_cost:
+        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_available_balance}")
         await loading_message.edit_text(
-            f"လက်ကျန်ငွေ မလုံလောက်ပါ.\nAvailable Balance: {current_balance[balance_type]}\nစုစုပေါင်း: {total_cost}"
+            f"လက်ကျန်ငွေ မလုံလောက်ပါ.\nAvailable Balance: {current_available_balance}\nစုစုပေါင်း: {total_cost}"
         )
         return
 
@@ -929,79 +1113,96 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
 
     for order in order_requests:
         # Attempt to deduct balance for the current order
-        new_balance = await update_balance(
-            sender_user_id, -order['product_rate'], balance_type)
-
-        if new_balance is None:
-            # If deduction fails (user not found or insufficient balance during processing)
+        # We need to re-fetch balance or calculate cumulatively for accurate per-order remaining balance
+        # For simplicity and to avoid race conditions with multiple concurrent orders, we re-fetch the latest balance
+        current_balance_for_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
+        
+        if current_balance_for_deduction < order['product_rate']:
             failed_orders.append(
-                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n" # Escape user ID
-                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n" # Escape zone ID
-                f"<b>Items:</b> {html.escape(order['product_name'])}\n" # Escape product name
-                f"<b>Results:</b> Insufficient Balance or Deduction Failed\n\n"
+                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
+                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
+                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
+                f"<b>Results</b>: Insufficient Balance during processing\n\n"
             )
             continue # Skip this order and move to the next
 
-        # Process the order
+        new_balance_after_deduction = await update_balance(
+            sender_user_id, -order['product_rate'], balance_type)
+
+        if new_balance_after_deduction is None:
+            # This case should ideally not be reached if previous checks and DB update are fine
+            failed_orders.append(
+                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
+                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
+                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
+                f"<b>Results</b>: Balance Deduction Failed (Internal Error)\n\n"
+            )
+            continue # Skip this order and move to the next
+
+
+        # Process the order with Smile One API
         order_ids = []
-        order_failed_during_processing = False
+        order_failed_during_api_call = False
         for pid in order['product_ids']:
             result = await create_order_and_log(region, order['user_id'], order['zone_id'], pid)
             order_id = result.get("order_id")
             if not order_id:
-                # Order creation failed for one of the product IDs
+                # Order creation failed for one of the product IDs on Smile One
                 failed_orders.append(
-                    f"<b>Game ID:</b> {html.escape(order['user_id'])}\n" # Escape user ID
-                    f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n" # Escape zone ID
-                    f"<b>Items:</b> {html.escape(order['product_name'])}\n" # Escape product name
-                    f"<b>Results:</b> {html.escape(result.get('reason', 'Order creation failed'))}\n\n" # Escape reason
+                    f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
+                    f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
+                    f"<b>Items</b>: {html.escape(order['product_name'])}\n"
+                    f"<b>Results</b>: {html.escape(result.get('reason', 'Smile One Order creation failed'))}\n\n"
                 )
-                order_failed_during_processing = True
+                order_failed_during_api_call = True
                 # Revert the balance deduction if any part of the order fails
                 await update_balance(sender_user_id, order['product_rate'], balance_type)
+                # Re-fetch the balance after potential revert, for logging
+                new_balance_after_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
                 break # Stop processing product IDs for this order
             order_ids.append(order_id)
 
-        if order_failed_during_processing:
-            continue # Move to the next order if processing failed for this one
+        if order_failed_during_api_call:
+            continue # Move to the next order if API call failed for this one
 
-        # If all product IDs for the order were processed successfully
-        if order_ids:
-            role_info = await get_role_info(order['user_id'], order['zone_id'])
-            # Escape username if available, before using it
-            username = html.escape(role_info.get('username', 'N/A')) if role_info else 'N/A'
+        # If all product IDs for the order were processed successfully with Smile One
+        role_info = await get_role_info(order['user_id'], order['zone_id'])
+        username_from_role = html.escape(role_info.get('username', 'N/A')) if role_info else 'N/A'
 
-            if role_info is None:
-                await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failed user lookup
-                failed_orders.append(
-                    f"<b>Game ID:</b> {html.escape(order['user_id'])}\n" # Escape user ID
-                    f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n" # Escape zone ID
-                    f"<b>Items:</b> {html.escape(order['product_name'])}\n" # Escape product name
-                    f"<b>Results:</b> User ID not exist\n\n"
-                )
-                continue
+        if role_info is None:
+            await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failed user lookup
+            # Re-fetch balance after revert
+            new_balance_after_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
+            failed_orders.append(
+                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
+                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
+                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
+                f"<b>Results</b>: User ID not exist (failed role lookup)\n\n"
+            )
+            continue
 
+        order_summary.append({
+            "order_ids": order_ids,
+            "username": username_from_role,
+            "user_id": order['user_id'],
+            "zone_id": order['zone_id'],
+            "product_name": order['product_name'],
+            "total_cost": order['product_rate'],
+            "remaining_balance": new_balance_after_deduction # Store remaining balance for this specific order
+        })
 
-            order_summary.append({
-                "order_ids": order_ids,
-                "username": username,
-                "user_id": order['user_id'],
-                "zone_id": order['zone_id'],
-                "product_name": order['product_name'],
-                "total_cost": order['product_rate'],
-            })
-
-            transaction_documents.append({
-                "sender_user_id": sender_user_id,
-                "user_id": order['user_id'],
-                "zone_id": order['zone_id'],
-                "username": username,
-                "product_name": order['product_name'],
-                "order_ids": order_ids,
-                "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
-                "total_cost": order['product_rate'],
-                "status": "success"
-            })
+        transaction_documents.append({
+            "sender_user_id": sender_user_id,
+            "user_id": order['user_id'],
+            "zone_id": order['zone_id'],
+            "username": username_from_role,
+            "product_name": order['product_name'],
+            "order_ids": order_ids,
+            "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
+            "total_cost": order['product_rate'],
+            "status": "success",
+            "remaining_balance": new_balance_after_deduction # Store remaining balance in transaction doc
+        })
 
     # Insert all successful transactions
     if transaction_documents:
@@ -1022,13 +1223,14 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         order_ids_str = ', '.join(detail["order_ids"])
         response_summary += (
             f"<b>Order Completed:</b> ✅\n"
-            f"<b>Order ID:</b> {html.escape(str(order_ids_str))}\n" # Escape order IDs string
+            f"<b>Order ID:</b> <code>{html.escape(str(order_ids_str))}</code>\n" # Escape order IDs string
             f"<b>Game Name:</b> {html.escape(detail['username'])}\n" # Escape username
-            f"<b>Game ID:</b> {html.escape(str(detail['user_id']))}\n" # Escape user ID
+            f"<b>Game ID:</b> <code>{html.escape(str(detail['user_id']))}</code>\n" # Escape user ID
             f"<b>Game Server:</b> {html.escape(str(detail['zone_id']))}\n" # Escape zone ID
             f"<b>Time:</b> {current_summary_time}\n" # Use the summary time or the stored order time
             f"<b>Amount:</b> {html.escape(str(detail['product_name']))}💎\n" # Escape product name
-            f"<b>Total Cost:</b> ${detail['total_cost']:.2f} 🪙\n\n"
+            f"<b>Total Cost:</b> ${detail['total_cost']:.2f} 🪙\n"
+            f"<b>Remaining Balance:</b> ${detail['remaining_balance']:.2f} 🪙\n\n" # Display remaining balance
         )
 
     if failed_orders:
@@ -1062,14 +1264,15 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('price', price_command))
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CommandHandler('role', role_command))  # user name check
-    app.add_handler(CommandHandler('mgcp', bulk_command_ph))
-    app.add_handler(CommandHandler('mgcb', bulk_command_br))
+    app.add_handler(CommandHandler('mmp', bulk_command_ph))
+    app.add_handler(CommandHandler('mmb', bulk_command_br))
     app.add_handler(CommandHandler('add_bal', add_balance_command))  # add balance for user
     app.add_handler(CommandHandler('ded_bal', deduct_balance_command))  # remove balance from user
     app.add_handler(CommandHandler('user', get_users_command))  # admin command user list collect
     app.add_handler(CommandHandler('all_his', get_all_orders))
     app.add_handler(CommandHandler('his', get_user_orders))  # order history
-    app.add_handler(CallbackQueryHandler(handle_register_user, pattern="register_user"))
+    app.add_handler(CommandHandler('registeruser', register_user_by_admin_command)) # New admin command for registration
+    app.add_handler(CommandHandler('removeuser', remove_user_by_admin_command)) # New admin command to remove user
 
     print("Bot is running...")
     app.run_polling(poll_interval=3)
