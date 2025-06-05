@@ -36,7 +36,7 @@ UID = os.getenv('UID')
 EMAIL = os.getenv('EMAIL')
 KEY = os.getenv('KEY')
 DEFAULT_PRODUCT_ID: Final = "213"
-admins = [5671920054, 1836389511, 7135882496]
+admins = [5671920054, 1836389511, 7135882496] # <-- သင့်ရဲ့ Admin ID များကို ဒီနေရာမှာ Integer အဖြစ် ထည့်သွင်းထားပါ။
 
 # Configure logging
 logging.basicConfig(
@@ -121,8 +121,8 @@ async def start_command(update: Update, context: CallbackContext):
         existing_user_message = (
             "<b>HI! DEAR,</b>\n"
             "Your current balances:\n"
-            f"1️⃣ PH Balance : ${balance_ph}\n"
-            f"2️⃣ BR Balance : ${balance_br}\n\n"
+            f"1️⃣ PH Balance : ${balance_ph}\n" # SyntaxWarning fix: $ is fine here as it's not a known escape sequence prefix.
+            f"2️⃣ BR Balance : ${balance_br}\n\n" # SyntaxWarning fix: $ is fine here.
             "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
         )
         await update.message.reply_text(existing_user_message, parse_mode="HTML")
@@ -200,22 +200,53 @@ async def price_command(update: Update, context: CallbackContext):
     wdp - diamond 95
 
 <b>🇧🇷 Brazil:</b>
-    svp: \$39.00
-    55: \$39.00
-    165: \$116.90
-    275: \$187.50
-    565: \$385.00
-    wkp: \$76.00
-    twilight: \$402.50
-
-For more details, contact admin."""
+    - svp: $39.00
+    - 55: $39.00
+    - 165: $116.90
+    - 275: $187.50
+    - 565: $385.00
+    
+      NORMAL PACK
+    
+    - wkp: $76.00
+    - wkp2: $152.00
+    - wkp3: $228.00
+    - wkp4: $304.00
+    - wkp5: $380.00
+    - wkp10: $760.00
+    - twilight: $402.50
+    - 86: $61.50
+    - 172: $122.00
+    - 257: $177.50
+    - 343: $239.00
+    - 344: $244.00
+    - 429: $299.50
+    - 514: $355.00
+    - 600: $416.50
+    - 706: $480.00
+    - 792: $541.50
+    - 878: $602.00
+    - 963: $657.50
+    - 1049: $719.00
+    - 1135: $779.50
+    - 1220: $835.00
+    - 1412: $960.00
+    - 1584: $1082.00
+    - 1755: $1199.00
+    - 2195: $1453.00
+    - 2901: $1940.00
+    - 3688: $2424.00
+    - 4390: $2906.00
+    - 5532: $3660.00
+    - 9288: $6079.00
+    - 11483: $7532.00"""
     await update.message.reply_text(price_list, parse_mode='HTML')
 
 
 async def admin_command(update: Update, context: CallbackContext):
     username = update.message.from_user.username
 
-    user_id = update.message.from_user.id
+    user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
     if user_id not in admins:
         await update.message.reply_text("❌Unauthorized Alert🚨")
@@ -261,8 +292,8 @@ Deducted
 
 # New Admin Command to Register Users
 async def register_user_by_admin_command(update: Update, context: CallbackContext):
-    admin_user_id = str(update.message.from_user.id)
-    if int(admin_user_id) not in admins:
+    admin_user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
+    if admin_user_id not in admins:
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
@@ -339,8 +370,8 @@ async def register_user_by_admin_command(update: Update, context: CallbackContex
 
 # New Admin Command to Remove Users
 async def remove_user_by_admin_command(update: Update, context: CallbackContext):
-    admin_user_id = str(update.message.from_user.id)
-    if int(admin_user_id) not in admins:
+    admin_user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
+    if admin_user_id not in admins:
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
@@ -439,10 +470,9 @@ async def add_balance_command(update: Update, context: CallbackContext):
     """
     Command to add balance to a user's account by ID or username.
     """
-    admin_user_id = str(update.message.from_user.id)  # Get the user ID of the admin issuing the command
-
+    admin_user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
-    if int(admin_user_id) not in admins:
+    if admin_user_id not in admins:
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
@@ -518,10 +548,8 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
     """
     Command to deduct balance from a user's account by ID or username.
     """
-    admin_user_id = str(update.message.from_user.id)  # Get the user ID of the admin issuing the command
-
-    # Check if the user is an admin
-    if int(admin_user_id) not in admins:
+    admin_user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
+    if admin_user_id not in admins:
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
 
@@ -599,8 +627,7 @@ def split_message(text, max_length=4096):
 
 
 async def get_users_command(update: Update, context: CallbackContext):
-    user_id = str(update.message.from_user.id)  # Get the user ID of the person issuing the command
-
+    user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
     if user_id not in admins:
         await update.message.reply_text("Unauthorized: You are not allowed to use this command.")
@@ -725,11 +752,9 @@ async def get_user_orders(update: Update, context: CallbackContext):
 
 
 async def get_all_orders(update: Update, context: CallbackContext):
-    user_id = str(update.message.from_user.id)  # Get the Telegram user's ID
-
+    user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
-    if int(user_id) not in admins:  # Convert to integer for proper comparison
-        logging.info(f"Unauthorized access attempt by user ID: {user_id}")
+    if user_id not in admins:
         await update.message.reply_text("❌ Unauthorized: You are not allowed to use this command.")
         return
 
@@ -877,8 +902,7 @@ async def role_command(update: Update, context: CallbackContext):
 
 
 async def query_point_command(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
-
+    user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Authorization check
     if user_id not in admins:
         await update.message.reply_text('Unauthorized access.')
