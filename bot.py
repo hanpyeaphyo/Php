@@ -52,6 +52,9 @@ async def resolve_user_identifier(identifier: str):
     If it's a username, it tries to find the corresponding user_id in the database.
     Returns (user_id_str, display_name) or (None, None) if username cannot be resolved.
     """
+    # Remove any leading/trailing parentheses from the identifier
+    identifier = identifier.strip('()')
+
     if identifier.isdigit():
         # It's a numeric ID, directly use it.
         # For numeric IDs, we can usually send messages even if user hasn't started bot,
@@ -121,8 +124,8 @@ async def start_command(update: Update, context: CallbackContext):
         existing_user_message = (
             "<b>HI! DEAR,</b>\n"
             "Your current balances:\n"
-            f"1️⃣ PH Balance : ${balance_ph}\n" # SyntaxWarning fix: $ is fine here as it's not a known escape sequence prefix.
-            f"2️⃣ BR Balance : ${balance_br}\n\n" # SyntaxWarning fix: $ is fine here.
+            f"🇵🇭 PH Balance : ${balance_ph}\n"
+            f"🇧🇷 BR Balance : ${balance_br}\n\n"
             "<b>PLEASE PRESS /help FOR HOW TO USED</b>\n"
         )
         await update.message.reply_text(existing_user_message, parse_mode="HTML")
@@ -157,11 +160,13 @@ Please Contact admin ☺️
 
 /getid - <b>Account ID</b>
 
-/price - <b>Price List</b>
+/pricebr - <b>Brazil Price List</b>
 
-/mmp - <b>Order PH</b>
+/priceph - <b>Philippines Price List</b>
 
-/mmb - <b>Order BR</b>
+/use - <b>How To Use (or) How To Diamond Top Up</b>
+
+Bot Creater by @sh1ntxant
 
     """
     try:
@@ -173,7 +178,7 @@ Please Contact admin ☺️
         await update.message.reply_text("An error occurred while sending the help message.")
 
 
-async def price_command(update: Update, context: CallbackContext):
+async def pricebr_command(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     
     # Check if user is registered by admin
@@ -184,64 +189,111 @@ async def price_command(update: Update, context: CallbackContext):
 
     # Define the merged price list
     price_list = """
-<b>Pack List (PH and BR):</b>
-
-<b>🇵🇭 Philippines:</b>
-    11 - diamond 11
-    22 - diamond 22
-    56 - diamond 56
-    112 - diamond 112
-    223 - diamond 223
-    336 - diamond 336
-    570 - diamond 570
-    1163 - diamond 1163
-    2398 - diamond 2398
-    6042 - diamond 6042
-    wdp - diamond 95
+<b>Pack List (FOR BR):</b>
 
 <b>🇧🇷 Brazil:</b>
-    - svp: $39.00
-    - 55: $39.00
-    - 165: $116.90
-    - 275: $187.50
-    - 565: $385.00
-    
-      NORMAL PACK
-    
-    - wkp: $76.00
-    - wkp2: $152.00
-    - wkp3: $228.00
-    - wkp4: $304.00
-    - wkp5: $380.00
-    - wkp10: $760.00
-    - twilight: $402.50
-    - 86: $61.50
-    - 172: $122.00
-    - 257: $177.50
-    - 343: $239.00
-    - 344: $244.00
-    - 429: $299.50
-    - 514: $355.00
-    - 600: $416.50
-    - 706: $480.00
-    - 792: $541.50
-    - 878: $602.00
-    - 963: $657.50
-    - 1049: $719.00
-    - 1135: $779.50
-    - 1220: $835.00
-    - 1412: $960.00
-    - 1584: $1082.00
-    - 1755: $1199.00
-    - 2195: $1453.00
-    - 2901: $1940.00
-    - 3688: $2424.00
-    - 4390: $2906.00
-    - 5532: $3660.00
-    - 9288: $6079.00
-    - 11483: $7532.00"""
-    await update.message.reply_text(price_list, parse_mode='HTML')
 
+      DOUBLE DIAMOND PACK
+
+    - svp: 39.00🪙
+    - 55: 39.00🪙
+    - 165: 116.90🪙
+    - 275: 187.50🪙
+    - 565: 385.00🪙
+    
+      NORMAL DIAMOND PACK
+    
+    - wkp: 76.00🪙
+    - wkp2: 152.00🪙
+    - wkp3: 228.00🪙
+    - wkp4: 304.00🪙
+    - wkp5: 380.00🪙
+    - wkp10: 760.00🪙
+    - twilight: 402.50🪙
+    - 86: 61.50🪙
+    - 172: 122.00🪙
+    - 257: 177.50🪙
+    - 343: 239.00🪙
+    - 344: 244.00🪙
+    - 429: 299.50🪙
+    - 514: 355.00🪙
+    - 600: 416.50🪙
+    - 706: 480.00🪙
+    - 792: 541.50🪙
+    - 878: 602.00🪙
+    - 963: 657.50🪙
+    - 1049: 719.00🪙
+    - 1135: 779.50🪙
+    - 1220: 835.00🪙
+    - 1412: 960.00🪙
+    - 1584: 1082.00🪙
+    - 1755: 1199.00🪙
+    - 2195: 1453.00🪙
+    - 2901: 1940.00🪙
+    - 3688: 2424.00🪙
+    - 4390: 2906.00🪙
+    - 5532: 3660.00🪙
+    - 9288: 6079.00🪙
+    - 11483: 7532.00🪙"""
+    await update.message.reply_text(price_list, parse_mode='HTML')
+    
+async def priceph_command(update: Update, context: CallbackContext):
+    user_id = str(update.message.from_user.id)
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
+        return
+
+    # Define the merged price list
+    price_list = """
+<b>Pack List (FOR PH):</b>
+
+<b>🇵🇭 Philippines:</b>
+
+    - 11: 10.00🪙
+    - 22: 19.00 🪙
+    - 56: 47.50🪙
+    - 112: 95.00🪙
+    - 223: 190.00🪙
+    - 336: 285.00🪙
+    - 570: 475.00🪙
+    - 1163: 950.00🪙
+    - 2398: 1900.00🪙
+    - 6042: 4750.00🪙
+    - wdp: 95.00🪙"""
+    await update.message.reply_text(price_list, parse_mode='HTML')    
+    
+async def use_command(update: Update, context: CallbackContext):
+    user_id = str(update.message.from_user.id)  # Get the user's ID
+    
+    # Check if user is registered by admin
+    user_data = await users_collection.find_one({"user_id": user_id})
+    if not user_data:
+        await update.message.reply_text("You are not registered to use this bot. Please ask an admin to register you.", parse_mode='HTML')
+        return
+        
+    # Example of functionality for /use command with country-specific instructions
+    response_message = (
+    "Welcome! Here's how you can use the bot:\n\n"
+    "For Brazil 🇧🇷:\n"
+    "<code>/mmb [id] [server id] [amount]</code>\n" # Added code tags and [ ] for clarity
+    "E.g - <code>/mmb 12345678 2222 wkp</code>\n\n"
+    
+    "For Philippines 🇵🇭:\n"
+    "<code>/mmp [id] [server id] [amount]</code>\n" # Added code tags and [ ] for clarity
+    "E.g - <code>/mmp 12345678 2222 11</code>\n\n"
+    
+    "For Brazil /pricebr.\n"
+    
+    "For Philippines /priceph.\n"     
+  
+    "FAILED ORDER 🚫 If it occurs, please notify the Admin.\n" # Changed to English
+  
+    "For more details, contact @minhtet4604."
+)
+    await update.message.reply_text(response_message, parse_mode='HTML')
 
 async def admin_command(update: Update, context: CallbackContext):
     username = update.message.from_user.username
@@ -356,8 +408,8 @@ async def register_user_by_admin_command(update: Update, context: CallbackContex
     user_welcome_msg = (
         f"🎉 Congratulations! You have been registered by an admin and can now use the bot.\n\n"
         f"Your current balances:\n"
-        f"PH Balance : \$0\n"
-        f"BR Balance : \$0\n\n"
+        f"PH Balance : \\$0\n"
+        f"BR Balance : \\$0\n\n"
         f"Please press /help for how to use the bot."
     )
     try:
@@ -471,7 +523,6 @@ async def add_balance_command(update: Update, context: CallbackContext):
     Command to add balance to a user's account by ID or username.
     """
     admin_user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
-    # Check if the user is an admin
     if admin_user_id not in admins:
         await update.message.reply_text("🚫 *Unauthorized*: You are not allowed to use this command.", parse_mode='Markdown')
         return
@@ -484,7 +535,7 @@ async def add_balance_command(update: Update, context: CallbackContext):
         )
         return
 
-    identifier = context.args[0]
+    identifier = context.args[0].strip('()') # Strip parentheses
     amount = int(context.args[1])
     balance_type = context.args[2]
 
@@ -561,7 +612,7 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
         )
         return
 
-    identifier = context.args[0]
+    identifier = context.args[0].strip('()') # Strip parentheses
     amount = int(context.args[1])
     balance_type = context.args[2]
 
@@ -755,7 +806,7 @@ async def get_all_orders(update: Update, context: CallbackContext):
     user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
     if user_id not in admins:
-        await update.message.reply_text("❌ Unauthorized: You are not allowed to use this command.")
+        await update.message.reply_text("Unauthorized: You are not allowed to use this command.")
         return
 
     # Fetch all orders from the collection
@@ -883,18 +934,19 @@ async def role_command(update: Update, context: CallbackContext):
 
     args = context.args
     if len(args) != 2:
-        await update.message.reply_text('ဆက်သွယ်ရန် @minhtet4604 ')
+        await update.message.reply_text('Contact to @minhtet4604 ')
         return
-    userid, zoneid = args
+    userid = args[0].strip('()') # Strip parentheses
+    zoneid = args[1].strip('()') # Strip parentheses
     role_info = await get_role_info(userid, zoneid)  # Await this call
     if role_info:
         username = role_info.get(
             'username', 'N/A')  # Check username for special characters
         reply_message = (
-            f"<b>=== အချက်အလက် ===</b>\n"
-            f"<b>အသုံးပြုသူ:</b> {html.escape(str(username))}\n" # Escape username
-            f"<b>  အိုင်ဒီ        :</b> <code>{html.escape(str(userid))}</code>\n" # Escape user ID
-            f"<b>  ဆာဗာ        :</b> {html.escape(str(zoneid))}" # Escape zone ID
+            f"<b>===  ===</b>\n"
+            f"<b>Username:</b> {html.escape(str(username))}\n" # Escape username
+            f"<b>         ID       :</b> <code>{html.escape(str(userid))}</code>\n" # Escape user ID
+            f"<b>    Sever ID   :</b> {html.escape(str(zoneid))}" # Escape zone ID
         )
         await update.message.reply_text(reply_message, parse_mode='HTML')  # Use HTML for formatting
     else:
@@ -1005,8 +1057,8 @@ product_info_br = {
 }
 
 
-async def create_order_and_log(region: str, userid: str, zoneid: str, product_id: str):
-    endpoint = f"{SMILE_ONE_BASE_URL_PH if region == 'ph' else SMILE_ONE_BASE_URL_BR}/smilecoin/api/createorder"
+async def create_order_and_log(userid: str, zoneid: str, product_id: str, base_url: str):
+    endpoint = f"{base_url}/smilecoin/api/createorder"
     current_time = int(time.time())
 
     params = {
@@ -1031,10 +1083,10 @@ async def create_order_and_log(region: str, userid: str, zoneid: str, product_id
                     return {"order_id": data.get('order_id')}  # Return only the order ID if successful
                 else:
                     error_message = data.get('message', 'Unknown error')  # Capture the specific failure reason
-                    logger.error(f"Failed to create {region.upper()} order: {error_message}")
+                    logger.error(f"Failed to create order via {base_url}: {error_message}")
                     return {"order_id": None, "reason": error_message}  # Return None with reason
         except aiohttp.ClientError as e:
-            logger.error(f"Error creating {region.upper()} order: {e}")
+            logger.error(f"Error creating order via {base_url}: {e}")
             return {"order_id": None, "reason": str(e)}  # Capture client error as reason if needed
 
 
@@ -1057,7 +1109,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         return
 
     if len(args) < 3:  # Expecting at least one user ID, zone ID, and one product name
-        await update.message.reply_text('ဆက်သွယ်ရန် @minhtet4604')
+        await update.message.reply_text('Contact to @minhtet4604')
         return
 
     order_requests = []
@@ -1065,9 +1117,11 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     sender_user_id = str(update.message.from_user.id)
 
     loading_message = await update.message.reply_text(
-        "<b>ခဏစောင့်ပေးပါ</b> 🕐",
+        "<b>Please Wait A Second</b> 🕐",
         parse_mode="HTML"
     )
+    
+    base_url_for_region = SMILE_ONE_BASE_URL_PH if region == 'ph' else SMILE_ONE_BASE_URL_BR
 
     # Iterate through the args to extract user ID, zone ID, and product names
     for i in range(0, len(args), 3):
@@ -1075,16 +1129,21 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             await update.message.reply_text('Invalid input. Make sure to provide user ID, zone ID, and product name for each order.')
             return
 
-        user_id_str, zone_id, product_name = args[i:i+3] # user_id_str here is just the ID as a string
-        product_name = product_name.lower()  # Ensure the product name is in lowercase
+        user_id_raw = args[i]
+        zone_id_raw = args[i+1]
+        product_name = args[i+2].lower() # Ensure the product name is in lowercase
+
+        # Strip parentheses from user_id and zone_id
+        user_id_str = user_id_raw.strip('()')
+        zone_id = zone_id_raw.strip('()')
 
         # Check if the product name is valid
         product = product_info.get(product_name)
         if not product:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
-                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n"
+                f"<b>Game Server</b>: {html.escape(zone_id)}\n"
+                f"<b>Items</b>: {html.escape(product_name)}\n"
                 f"<b>Results</b>: Invalid Product\n\n"
             )
             continue
@@ -1093,9 +1152,9 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         product_rate = product["rate"]
         if product_rate is None:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
-                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n"
+                f"<b>Game Server</b>: {html.escape(zone_id)}\n"
+                f"<b>Items</b>: {html.escape(product_name)}\n"
                 f"<b>Results:</b> Product rate not available\n\n"
             )
             continue
@@ -1115,7 +1174,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     current_balance_dict = await get_balance(sender_user_id) # Get the full balance dictionary
     if current_balance_dict is None:
         print(f"[ERROR] Sender wallet balance not found for User ID: {sender_user_id}")
-        await loading_message.edit_text("ဆက်သွယ်ရန် @minhtet4604")
+        await loading_message.edit_text("Contact to @minhtet4604")
         return
     
     current_available_balance = current_balance_dict.get(balance_type, 0)
@@ -1127,7 +1186,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     if current_available_balance < total_cost:
         print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_available_balance}")
         await loading_message.edit_text(
-            f"လက်ကျန်ငွေ မလုံလောက်ပါ.\nAvailable Balance: {current_available_balance}\nစုစုပေါင်း: {total_cost}"
+            f"Not Enough Balance.\nAvailable Balance: {current_available_balance}\nTotal: {total_cost}"
         )
         return
 
@@ -1168,7 +1227,8 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         order_ids = []
         order_failed_during_api_call = False
         for pid in order['product_ids']:
-            result = await create_order_and_log(region, order['user_id'], order['zone_id'], pid)
+            # Pass the correct base_url for the region
+            result = await create_order_and_log(order['user_id'], order['zone_id'], pid, base_url_for_region)
             order_id = result.get("order_id")
             if not order_id:
                 # Order creation failed for one of the product IDs on Smile One
@@ -1212,7 +1272,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "zone_id": order['zone_id'],
             "product_name": order['product_name'],
             "total_cost": order['product_rate'],
-            "remaining_balance": new_balance_after_deduction # Store remaining balance for this specific order
+            "initial_balance": new_balance_after_deduction # Store remaining balance for this specific order
         })
 
         transaction_documents.append({
@@ -1222,10 +1282,10 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "username": username_from_role,
             "product_name": order['product_name'],
             "order_ids": order_ids,
-            "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p'), # Store date with 12-hour format
+            "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d'),  # Store date with 12-hour format
             "total_cost": order['product_rate'],
             "status": "success",
-            "remaining_balance": new_balance_after_deduction # Store remaining balance in transaction doc
+            "initial_balance": new_balance_after_deduction # Store remaining balance in transaction doc
         })
 
     # Insert all successful transactions
@@ -1239,22 +1299,22 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
 
 
     # Prepare response summary
-    response_summary = f"======{region.upper()} Order Summary======\n"
+    response_summary = f"======{region.upper()} Transaction Report======\n"
     # Get the current time for the summary message
-    current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%Y-%m-%d %I:%M:%S %p') # Myanmar time in 12-hour format with AM/PM
-
+    current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d')
+    
     for detail in order_summary:
         order_ids_str = ', '.join(detail["order_ids"])
         response_summary += (
-            f"<b>Order Completed:</b> ✅\n"
-            f"<b>Order ID:</b> <code>{html.escape(str(order_ids_str))}</code>\n" # Escape order IDs string
-            f"<b>Game Name:</b> {html.escape(detail['username'])}\n" # Escape username
-            f"<b>Game ID:</b> <code>{html.escape(str(detail['user_id']))}</code>\n" # Escape user ID
-            f"<b>Game Server:</b> {html.escape(str(detail['zone_id']))}\n" # Escape zone ID
-            f"<b>Time:</b> {current_summary_time}\n" # Use the summary time or the stored order time
-            f"<b>Amount:</b> {html.escape(str(detail['product_name']))}💎\n" # Escape product name
-            f"<b>Total Cost:</b> ${detail['total_cost']:.2f} 🪙\n"
-            f"<b>Remaining Balance:</b> ${detail['remaining_balance']:.2f} 🪙\n\n" # Display remaining balance
+            f"<b>Order Status    :  </b> Completed✅\n"
+            f"<b>Order ID            :  </b> <code>{html.escape(str(order_ids_str))}</code>\n" # Escape order IDs string
+            f"<b>Game Name    :  </b> {html.escape(detail['username'])}\n" # Escape username
+            f"<b>Game ID           :  </b> <code>{html.escape(str(detail['user_id']))}</code>\n" # Escape user ID
+            f"<b>Game Server    :  </b> {html.escape(str(detail['zone_id']))}\n" # Escape zonname
+            f"<b>Time                  :  </b> {current_summary_time}\n" # Use the summary time or the stored order time
+            f"<b>Amount             :  </b> {html.escape(str(detail['product_name']))}💎\n" # Escape product name
+            f"<b>Total Cost         :  </b> ${detail['total_cost']:.2f} 🪙\n"
+            f"<b>Initial Balance  :  </b> ${detail['initial_balance']:.2f} 🪙\n\n" # Display remaining balance
         )
 
     if failed_orders:
@@ -1285,7 +1345,9 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('bal', balance_command))  # user balance
     app.add_handler(CommandHandler('bal_admin', query_point_command))  # admin balance
     app.add_handler(CommandHandler('admin', admin_command))
-    app.add_handler(CommandHandler('price', price_command))
+    app.add_handler(CommandHandler('pricebr', pricebr_command))
+    app.add_handler(CommandHandler('priceph', priceph_command))
+    app.add_handler(CommandHandler('use', use_command))
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CommandHandler('role', role_command))  # user name check
     app.add_handler(CommandHandler('mmp', bulk_command_ph))
