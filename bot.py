@@ -493,12 +493,12 @@ async def balance_command(update: Update, context: CallbackContext):
 
         # Format the response with emojis and Markdown styling
         response_message = (
-            f"*MinHtet Bot BALANCE 💰:*\n\n"
-            f"🇵🇭 *PH Balance*: `{balance_ph:.2f}` 🪙\n"
-            f"🇧🇷 *BR Balance*: `{balance_br:.2f}` 🪙\n"
+            f"<b>MinHtet Bot BALANCE 💰:</b>\n\n"
+            f"🇵🇭 <b>PH Balance</b>: <code>{balance_ph:.2f}</code> 🪙\n"
+            f"🇧🇷 <b>BR Balance</b>: <code>{balance_br:.2f}</code> 🪙\n"
         )
 
-        await update.message.reply_text(response_message, parse_mode='Markdown')
+        await update.message.reply_text(response_message, parse_mode='HTML')
     else:
         # This else is unlikely if the initial check passes, but good for safety
         await update.message.reply_text("Error: Could not retrieve your balance. Please try again later.", parse_mode='Markdown')
@@ -760,21 +760,22 @@ async def get_user_orders(update: Update, context: CallbackContext):
         if date_str != 'N/A':
             try:
                 # Attempt to parse the stored date string. Adjust format string if necessary.
-                # Assuming the date is stored in '%Y-%m-%d %I:%M:%S %p' format
-                order_date_obj = datetime.strptime(date_str, '%Y-%m-%d %I:%M:%S %p')
-                formatted_date = order_date_obj.strftime('%Y-%m-%d %I:%M:%S %p') # Re-format to ensure consistency
+                # Assuming the date is stored in '%I:%M:%S %p %Y-%m-%d' format from bulk_command
+                order_date_obj = datetime.strptime(date_str, '%I:%M:%S %p %Y-%m-%d')
+                formatted_date = order_date_obj.strftime('%I:%M:%S %p %Y-%m-%d') # Re-format to ensure consistency
             except ValueError:
                 # If parsing fails, maybe the stored date doesn't include time or is in a different format
-                # In this case, keep the original string or format just the date part.
                 try:
-                     date_only_obj = datetime.strptime(date_str.split(' ')[0], '%Y-%m-%d')
+                     date_only_obj = datetime.strptime(date_str.split(' ')[-1], '%Y-%m-%d') # Try to get date part only
                      formatted_date = date_only_obj.strftime('%Y-%m-%d') # Format date only
                 except ValueError:
-                     pass # Keep original string if date-only parsing also fails
+                     pass # Keep original string if parsing also fails
 
 
         total_cost = order.get('total_cost', 0.0)
         status = order.get('status', 'N/A')
+        # Get remaining balance from order document if available
+        remaining_balance = order.get('initial_balance', 'N/A') 
 
         if isinstance(order_ids, list):
             order_ids = ', '.join(order_ids)
@@ -786,27 +787,28 @@ async def get_user_orders(update: Update, context: CallbackContext):
         player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
 
         response_summary += (
-            f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n" # Display user's username
-            f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n" # Escape user ID
-            f"🌍 Zone ID: {html.escape(str(zone_id))}\n" # Escape zone ID
-            f"💎 Pack: {html.escape(str(pack))}\n" # Escape pack
-            f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
-            f"📅 Date: {formatted_date}\n" # Use formatted_date
-            f"💵 Rate: $ {float(total_cost):.2f}\n"
-            f"🔄 Status: {html.escape(str(status))}\n\n" # Escape status
+            f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n"
+            f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n"
+            f"🌍 Zone ID: {html.escape(str(zone_id))}\n"
+            f"💎 Pack: {html.escape(str(pack))}\n"
+            f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n"
+            f"📅 Date: {formatted_date}\n"
+            f"💵 Rate: ${float(total_cost):.2f}\n"
+            f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" +
+            f"🔄 Status: {html.escape(str(status))}\n\n"
         )
 
     # Split the message if it's too long for a single reply
     messages = split_message(response_summary)
     for msg in messages:
-        await update.message.reply_text(msg, parse_mode='HTML') # Use HTML parse mode
+        await update.message.reply_text(msg, parse_mode='HTML')
 
 
 async def get_all_orders(update: Update, context: CallbackContext):
     user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
     if user_id not in admins:
-        await update.message.reply_text("Unauthorized: You are not allowed to use this command.")
+        await update.message.reply_text("❌ Unauthorized: You are not allowed to use this command.")
         return
 
     # Fetch all orders from the collection
@@ -833,21 +835,23 @@ async def get_all_orders(update: Update, context: CallbackContext):
             if date_str != 'N/A':
                 try:
                     # Attempt to parse the stored date string. Adjust format string if necessary.
-                    # Assuming the date is stored in '%Y-%m-%d %I:%M:%S %p' format
-                    order_date_obj = datetime.strptime(date_str, '%Y-%m-%d %I:%M:%S %p')
-                    formatted_date = order_date_obj.strftime('%Y-%m-%d %I:%M:%S %p') # Re-format to ensure consistency
+                    # Assuming the date is stored in '%I:%M:%S %p %Y-%m-%d' format from bulk_command
+                    order_date_obj = datetime.strptime(date_str, '%I:%M:%S %p %Y-%m-%d')
+                    formatted_date = order_date_obj.strftime('%I:%M:%S %p %Y-%m-%d') # Re-format to ensure consistency
                 except ValueError:
                     # If parsing fails, maybe the stored date doesn't include time or is in a different format
-                    # In this case, keep the original string or format just the date part.
                     try:
-                        date_only_obj = datetime.strptime(date_str.split(' ')[0], '%Y-%m-%d')
+                        date_only_obj = datetime.strptime(date_str.split(' ')[-1], '%Y-%m-%d') # Try to get date part only
                         formatted_date = date_only_obj.strftime('%Y-%m-%d') # Format date only
                     except ValueError:
-                         pass # Keep original string if date-only parsing also fails
+                         pass # Keep original string if parsing also fails
 
 
             total_cost = order.get('total_cost', 0.0)
             status = order.get('status', 'N/A')
+            # Get remaining balance from order document if available
+            remaining_balance = order.get('initial_balance', 'N/A')
+
 
             if isinstance(order_ids, list):
                 order_ids = ', '.join(order_ids)
@@ -863,20 +867,21 @@ async def get_all_orders(update: Update, context: CallbackContext):
 
 
             response_summary += (
-                f"🆔 Sender: <b>{html.escape(sender_display_name)}</b> (ID: <code>{html.escape(str(sender_user_id))}</code>)\n" # Display sender username/ID
-                f"🎮 Player: <b>{html.escape(player_display_name)}</b> (ID: <code>{html.escape(str(player_id))}</code>)\n" # Display player username/ID
-                f"🌍 Zone ID: {html.escape(str(zone_id))}\n" # Escape zone ID
-                f"💎 Product: {html.escape(str(product_name))}\n" # Escape product name
-                f"🆔 Order IDs: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
-                f"📅 Date: {formatted_date}\n" # Use formatted_date
-                f"💵 Total Cost: $ {float(total_cost):.2f}\n"
-                f"🔄 Status: {html.escape(str(status))}\n\n" # Escape status
+                f"🆔 Sender: <b>{html.escape(sender_display_name)}</b> (ID: <code>{html.escape(str(sender_user_id))}</code>)\n"
+                f"🎮 Player: <b>{html.escape(player_display_name)}</b> (ID: <code>{html.escape(str(player_id))}</code>)\n"
+                f"🌍 Zone ID: {html.escape(str(zone_id))}\n"
+                f"💎 Product: {html.escape(str(product_name))}\n"
+                f"🆔 Order IDs: <code>{html.escape(str(order_ids))}</code>\n"
+                f"📅 Date: {formatted_date}\n"
+                f"💵 Total Cost: ${float(total_cost):.2f}\n"
+                f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" +
+                f"🔄 Status: {html.escape(str(status))}\n\n"
             )
 
         # Split the message if it's too long for Telegram's limit
         messages = split_message(response_summary)
         for msg in messages:
-            await update.message.reply_text(msg, parse_mode='HTML') # Use HTML parse mode
+            await update.message.reply_text(msg, parse_mode='HTML')
 
     except Exception as e:
         logging.error(f"Error retrieving orders: {e}")
@@ -1057,7 +1062,7 @@ product_info_br = {
 }
 
 
-async def create_order_and_log(userid: str, zoneid: str, product_id: str, base_url: str):
+async def create_order_and_log(userid: str, zoneid: str, product_id: str, base_url: str): # Added base_url parameter
     endpoint = f"{base_url}/smilecoin/api/createorder"
     current_time = int(time.time())
 
@@ -1141,9 +1146,9 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         product = product_info.get(product_name)
         if not product:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n"
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n"
-                f"<b>Items</b>: {html.escape(product_name)}\n"
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
+                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
+                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
                 f"<b>Results</b>: Invalid Product\n\n"
             )
             continue
@@ -1152,9 +1157,9 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         product_rate = product["rate"]
         if product_rate is None:
             failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n"
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n"
-                f"<b>Items</b>: {html.escape(product_name)}\n"
+                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
+                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
+                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
                 f"<b>Results:</b> Product rate not available\n\n"
             )
             continue
@@ -1272,7 +1277,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "zone_id": order['zone_id'],
             "product_name": order['product_name'],
             "total_cost": order['product_rate'],
-            "initial_balance": new_balance_after_deduction # Store remaining balance for this specific order
+            "remaining_balance": new_balance_after_deduction # Store remaining balance for this specific order
         })
 
         transaction_documents.append({
@@ -1288,45 +1293,56 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "initial_balance": new_balance_after_deduction # Store remaining balance in transaction doc
         })
 
-    # Insert all successful transactions
+    # Insert all successful transactions to database
     if transaction_documents:
         try:
             await order_collection.insert_many(transaction_documents)
         except Exception as e:
              logger.error(f"Error inserting transactions: {e}")
-             # Handle potential database insert errors, perhaps log and inform admin
+             # This error should ideally not prevent sending reports, but needs logging
              pass
 
+    # Send individual transaction reports for successful orders
+    if order_summary:
+        current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d')
+        for detail in order_summary:
+            order_ids_str = ', '.join(detail["order_ids"])
+            individual_report = (
+                f"======{region.upper()} Transaction Report======\n"
+                f"<b>Order Status    :  </b> Completed✅\n"
+                f"<b>Order ID            :  </b> <code>{html.escape(str(order_ids_str))}</code>\n"
+                f"<b>Game Name    :  </b> {html.escape(detail['username'])}\n"
+                f"<b>Game ID           :  </b> <code>{html.escape(str(detail['user_id']))}</code>\n"
+                f"<b>Game Server    :  </b> {html.escape(str(detail['zone_id']))}\n"
+                f"<b>Time                  :  </b> {current_summary_time}\n"
+                f"<b>Amount             :  </b> {html.escape(str(detail['product_name']))}💎\n"
+                f"<b>Total Cost         :  </b> ${detail['total_cost']:.2f} 🪙\n"
+                f"<b>Remaining Balance:  </b> ${detail['remaining_balance']:.2f} 🪙\n\n"
+            )
+            try:
+                await update.message.reply_text(individual_report, parse_mode='HTML')
+            except Exception as e:
+                logger.error(f"Error sending individual report for order {order_ids_str}: {e}")
+                # Log error but continue to send other reports
 
-    # Prepare response summary
-    response_summary = f"======{region.upper()} Transaction Report======\n"
-    # Get the current time for the summary message
-    current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d')
-    
-    for detail in order_summary:
-        order_ids_str = ', '.join(detail["order_ids"])
-        response_summary += (
-            f"<b>Order Status    :  </b> Completed✅\n"
-            f"<b>Order ID            :  </b> <code>{html.escape(str(order_ids_str))}</code>\n" # Escape order IDs string
-            f"<b>Game Name    :  </b> {html.escape(detail['username'])}\n" # Escape username
-            f"<b>Game ID           :  </b> <code>{html.escape(str(detail['user_id']))}</code>\n" # Escape user ID
-            f"<b>Game Server    :  </b> {html.escape(str(detail['zone_id']))}\n" # Escape zonname
-            f"<b>Time                  :  </b> {current_summary_time}\n" # Use the summary time or the stored order time
-            f"<b>Amount             :  </b> {html.escape(str(detail['product_name']))}💎\n" # Escape product name
-            f"<b>Total Cost         :  </b> ${detail['total_cost']:.2f} 🪙\n"
-            f"<b>Initial Balance  :  </b> ${detail['initial_balance']:.2f} 🪙\n\n" # Display remaining balance
-        )
-
+    # Send summary of failed orders (if any)
     if failed_orders:
-        response_summary += "\n<b>Failed Orders 🚫</b>:\n"
-        response_summary += "".join(failed_orders) # Failed orders are already formatted with HTML
-
+        failed_summary_text = "\n<b>Failed Orders 🚫</b>:\n" + "".join(failed_orders)
+        try:
+            await update.message.reply_text(failed_summary_text, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error sending failed orders summary: {e}")
+            
+    # Final message to user
     try:
-        await loading_message.edit_text(response_summary, parse_mode='HTML')
+        if order_summary or failed_orders:
+            # If any reports were sent, just update the loading message to indicate completion
+            await loading_message.edit_text("✅ All orders processed. Check new messages for reports.", parse_mode='HTML')
+        else:
+            # If no orders were processed (e.g., initial checks failed before any orders)
+            await loading_message.edit_text("No orders were processed. Please check your command.", parse_mode='HTML')
     except Exception as e:
-        logger.error(f"Error sending bulk command summary message: {e}")
-        # Fallback to plain text if HTML summary fails
-        await loading_message.edit_text("Order processing finished. Check logs for details.", parse_mode=None)
+        logger.error(f"Error updating final loading message: {e}")
 
 
 async def bulk_command_ph(update: Update, context: CallbackContext):
