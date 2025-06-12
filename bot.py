@@ -36,7 +36,7 @@ UID = os.getenv('UID')
 EMAIL = os.getenv('EMAIL')
 KEY = os.getenv('KEY')
 DEFAULT_PRODUCT_ID: Final = "213"
-admins = [6527918792] # <-- သင့်ရဲ့ Admin ID များကို ဒီနေရာမှာ Integer အဖြစ် ထည့်သွင်းထားပါ။
+admins = [5671920054, 1836389511, 7135882496] # <-- သင့်ရဲ့ Admin ID များကို ဒီနေရာမှာ Integer အဖြစ် ထည့်သွင်းထားပါ။
 
 # Configure logging
 logging.basicConfig(
