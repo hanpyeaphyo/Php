@@ -36,12 +36,15 @@ UID = os.getenv('UID')
 EMAIL = os.getenv('EMAIL')
 KEY = os.getenv('KEY')
 DEFAULT_PRODUCT_ID: Final = "213"
-admins = [5671920054, 1836389511, 7135882496] # <-- သင့်ရဲ့ Admin ID များကို ဒီနေရာမှာ Integer အဖြစ် ထည့်သွင်းထားပါ။
+admins = [6527918792] # <-- သင့်ရဲ့ Admin ID များကို ဒီနေရာမှာ Integer အဖြစ် ထည့်သွင်းထားပါ။
 
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Packages for which balance will NOT be reverted on failure (as per user request)
+SPECIAL_NON_REVERT_PACKAGES = ["wkp", "wkp2", "wkp3", "wkp4", "wkp5", "wkp10"]
 
 
 ############ Helper function to resolve user identifier ###############
@@ -408,8 +411,8 @@ async def register_user_by_admin_command(update: Update, context: CallbackContex
     user_welcome_msg = (
         f"🎉 Congratulations! You have been registered by an admin and can now use the bot.\n\n"
         f"Your current balances:\n"
-        f"PH Balance : \\$0\n"
-        f"BR Balance : \\$0\n\n"
+        f"PH Balance : \$0\n" # Removed backslash, as $ is not special in HTML
+        f"BR Balance : \$0\n\n" # Removed backslash, as $ is not special in HTML
         f"Please press /help for how to use the bot."
     )
     try:
@@ -504,18 +507,36 @@ async def balance_command(update: Update, context: CallbackContext):
         await update.message.reply_text("Error: Could not retrieve your balance. Please try again later.", parse_mode='Markdown')
 
 
-async def update_balance(user_id: str, amount: int, balance_type: str):
+async def update_balance(user_id: str, amount: float, balance_type: str): # Changed amount to float
     """
-    Updates the balance of the specified user.
+    Atomically updates the balance of the specified user.
+    If deducting, ensures sufficient balance.
+    Returns the new balance, or None if the operation failed (e.g., insufficient balance).
     """
-    user = await users_collection.find_one({"user_id": user_id})
-    if user:
-        current_balance = user.get(balance_type, 0)
-        new_balance = current_balance + amount
+    # Using find_one_and_update for atomic operation
+    query = {"user_id": user_id}
+    if amount < 0: # If it's a deduction
+        query[balance_type] = {"$gte": abs(amount)} # Ensure current balance is >= absolute amount
+        
+    result = await users_collection.find_one_and_update(
+        query,
+        {"$inc": {balance_type: amount}}, # Atomically increment/decrement
+        return_document=True # Return the updated document
+    )
 
-        await users_collection.update_one({"user_id": user_id}, {"$set": {balance_type: new_balance}})
-        return new_balance
-    return None
+    if result:
+        logger.info(f"Balance update successful for user {user_id}, {balance_type}: new balance {result.get(balance_type)}")
+        return result.get(balance_type)
+    else:
+        # If result is None, it means:
+        # 1. User not found, OR
+        # 2. For deduction, balance was insufficient (query condition failed).
+        current_user = await users_collection.find_one({"user_id": user_id}) # Re-fetch to log current balance if possible
+        if current_user and amount < 0 and current_user.get(balance_type, 0.0) < abs(amount):
+            logger.warning(f"Balance update failed for user {user_id}: Insufficient balance for {balance_type} deduction. Current: {current_user.get(balance_type, 0.0)}, Attempted: {abs(amount)}")
+            return None
+        logger.error(f"Balance update failed for user {user_id} (unknown reason, possibly user not found).")
+        return None
 
 
 async def add_balance_command(update: Update, context: CallbackContext):
@@ -536,7 +557,7 @@ async def add_balance_command(update: Update, context: CallbackContext):
         return
 
     identifier = context.args[0].strip('()') # Strip parentheses
-    amount = int(context.args[1])
+    amount = float(context.args[1]) # Changed to float
     balance_type = context.args[2]
 
     # Resolve target user ID and display name
@@ -613,7 +634,7 @@ async def deduct_balance_command(update: Update, context: CallbackContext):
         return
 
     identifier = context.args[0].strip('()') # Strip parentheses
-    amount = int(context.args[1])
+    amount = float(context.args[1]) # Changed to float
     balance_type = context.args[2]
 
     # Resolve target user ID and display name
@@ -787,14 +808,14 @@ async def get_user_orders(update: Update, context: CallbackContext):
         player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
 
         response_summary += (
-            f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n"
-            f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n"
-            f"🌍 Zone ID: {html.escape(str(zone_id))}\n"
-            f"💎 Pack: {html.escape(str(pack))}\n"
-            f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n"
-            f"📅 Date: {formatted_date}\n"
+            f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n" # Display user's username
+            f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n" # Escape user ID
+            f"🌍 Zone ID: {html.escape(str(zone_id))}\n" # Escape zone ID
+            f"💎 Pack: {html.escape(str(pack))}\n" # Escape pack
+            f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
+            f"📅 Date: {formatted_date}\n" # Use formatted_date
             f"💵 Rate: ${float(total_cost):.2f}\n"
-            f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" +
+            f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" + # Display remaining balance
             f"🔄 Status: {html.escape(str(status))}\n\n"
         )
 
@@ -808,7 +829,7 @@ async def get_all_orders(update: Update, context: CallbackContext):
     user_id = int(update.message.from_user.id) # Ensure user_id is int for comparison
     # Check if the user is an admin
     if user_id not in admins:
-        await update.message.reply_text("❌ Unauthorized: You are not allowed to use this command.")
+        await update.message.reply_text("Unauthorized: You are not allowed to use this command.")
         return
 
     # Fetch all orders from the collection
@@ -874,7 +895,7 @@ async def get_all_orders(update: Update, context: CallbackContext):
                 f"🆔 Order IDs: <code>{html.escape(str(order_ids))}</code>\n"
                 f"📅 Date: {formatted_date}\n"
                 f"💵 Total Cost: ${float(total_cost):.2f}\n"
-                f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" +
+                f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" + # Display remaining balance
                 f"🔄 Status: {html.escape(str(status))}\n\n"
             )
 
@@ -1175,7 +1196,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         await loading_message.edit_text("No valid orders to process. Please Enter Valid Product Name")
         return
 
-    # Check if the user has sufficient balance
+    # Check if the user has sufficient balance for ALL orders first
     current_balance_dict = await get_balance(sender_user_id) # Get the full balance dictionary
     if current_balance_dict is None:
         print(f"[ERROR] Sender wallet balance not found for User ID: {sender_user_id}")
@@ -1185,13 +1206,13 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     current_available_balance = current_balance_dict.get(balance_type, 0)
 
     # Calculate total cost of all valid orders
-    total_cost = sum(order['product_rate'] for order in order_requests)
+    total_cost_for_all_valid_orders = sum(order['product_rate'] for order in order_requests)
 
-    # Check if the user's balance is sufficient for the total cost
-    if current_available_balance < total_cost:
-        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost}, Available: {current_available_balance}")
+    # Check if the user's total balance is sufficient for all orders
+    if current_available_balance < total_cost_for_all_valid_orders:
+        print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost_for_all_valid_orders}, Available: {current_available_balance}")
         await loading_message.edit_text(
-            f"Not Enough Balance.\nAvailable Balance: {current_available_balance}\nTotal: {total_cost}"
+            f"Not Enough Balance for all orders.\nAvailable Balance: {current_available_balance}\nTotal Required: {total_cost_for_all_valid_orders}"
         )
         return
 
@@ -1200,30 +1221,34 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     transaction_documents = []
 
     for order in order_requests:
-        # Attempt to deduct balance for the current order
-        # We need to re-fetch balance or calculate cumulatively for accurate per-order remaining balance
-        # For simplicity and to avoid race conditions with multiple concurrent orders, we re-fetch the latest balance
-        current_balance_for_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
+        # Before processing each order, verify current balance again to prevent over-deduction
+        # This is important if orders are processed one by one and balance is reduced.
+        current_balance_for_deduction = (await get_balance(sender_user_id)).get(balance_type, 0.0)
         
         if current_balance_for_deduction < order['product_rate']:
             failed_orders.append(
                 f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
                 f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
                 f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                f"<b>Results</b>: Insufficient Balance during processing\n\n"
+                f"<b>Results</b>: Insufficient Balance during processing (after initial check)\n\n"
             )
             continue # Skip this order and move to the next
 
+        # Store balance before deduction for this specific order
+        initial_balance_for_this_order = current_balance_for_deduction
+
+        # Attempt to deduct balance for the current order ATOMICALLY.
+        # This will return None if balance is insufficient or user not found.
         new_balance_after_deduction = await update_balance(
             sender_user_id, -order['product_rate'], balance_type)
 
         if new_balance_after_deduction is None:
-            # This case should ideally not be reached if previous checks and DB update are fine
+            # If deduction failed (e.g., insufficient balance or other DB issue)
             failed_orders.append(
                 f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
                 f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
                 f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                f"<b>Results</b>: Balance Deduction Failed (Internal Error)\n\n"
+                f"<b>Results</b>: Balance Deduction Failed (e.g., Insufficient Balance)\n\n"
             )
             continue # Skip this order and move to the next
 
@@ -1244,10 +1269,15 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
                     f"<b>Results</b>: {html.escape(result.get('reason', 'Smile One Order creation failed'))}\n\n"
                 )
                 order_failed_during_api_call = True
-                # Revert the balance deduction if any part of the order fails
-                await update_balance(sender_user_id, order['product_rate'], balance_type)
-                # Re-fetch the balance after potential revert, for logging
-                new_balance_after_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
+                # Revert the balance deduction if any part of the order fails, UNLESS it's a SPECIAL_NON_REVERT_PACKAGE
+                if order['product_name'] not in SPECIAL_NON_REVERT_PACKAGES:
+                    reverted_balance = await update_balance(sender_user_id, order['product_rate'], balance_type)
+                    if reverted_balance is not None:
+                         logger.info(f"Reverted {order['product_rate']} to user {sender_user_id}. New balance: {reverted_balance}")
+                    else:
+                         logger.error(f"Failed to revert {order['product_rate']} to user {sender_user_id} after API failure.")
+                else:
+                    logger.info(f"Balance NOT reverted for {order['product_name']} for user {sender_user_id} due to SPECIAL_NON_REVERT_PACKAGES rule.")
                 break # Stop processing product IDs for this order
             order_ids.append(order_id)
 
@@ -1259,9 +1289,16 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         username_from_role = html.escape(role_info.get('username', 'N/A')) if role_info else 'N/A'
 
         if role_info is None:
-            await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failed user lookup
-            # Re-fetch balance after revert
-            new_balance_after_deduction = (await get_balance(sender_user_id)).get(balance_type, 0)
+            # Role lookup failed, revert balance, UNLESS it's a SPECIAL_NON_REVERT_PACKAGE
+            if order['product_name'] not in SPECIAL_NON_REVERT_PACKAGES:
+                reverted_balance = await update_balance(sender_user_id, order['product_rate'], balance_type)  # Re-add balance on failed user lookup
+                if reverted_balance is not None:
+                    logger.info(f"Reverted {order['product_rate']} to user {sender_user_id}. New balance: {reverted_balance} (role lookup failed)")
+                else:
+                    logger.error(f"Failed to revert {order['product_rate']} to user {sender_user_id} after role lookup failure.")
+            else:
+                logger.info(f"Balance NOT reverted for {order['product_name']} for user {sender_user_id} due to SPECIAL_NON_REVERT_PACKAGES rule.")
+
             failed_orders.append(
                 f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
                 f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
@@ -1270,6 +1307,9 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             )
             continue
 
+        # Get the balance after successful processing (this is the true remaining balance)
+        final_remaining_balance_for_order = (await get_balance(sender_user_id)).get(balance_type, 0.0)
+
         order_summary.append({
             "order_ids": order_ids,
             "username": username_from_role,
@@ -1277,7 +1317,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "zone_id": order['zone_id'],
             "product_name": order['product_name'],
             "total_cost": order['product_rate'],
-            "remaining_balance": new_balance_after_deduction # Store remaining balance for this specific order
+            "remaining_balance": final_remaining_balance_for_order # Store actual remaining balance for this specific order
         })
 
         transaction_documents.append({
@@ -1290,7 +1330,7 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             "date": datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d'),  # Store date with 12-hour format
             "total_cost": order['product_rate'],
             "status": "success",
-            "initial_balance": new_balance_after_deduction # Store remaining balance in transaction doc
+            "initial_balance": final_remaining_balance_for_order # Store initial balance (or remaining) in transaction doc
         })
 
     # Insert all successful transactions to database
