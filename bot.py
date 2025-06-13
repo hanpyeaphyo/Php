@@ -494,7 +494,7 @@ async def balance_command(update: Update, context: CallbackContext):
         balance_ph = balances.get('balance_ph', 0)  # Fetch balance for PH
         balance_br = balances.get('balance_br', 0)  # Fetch balance for BR
 
-        # Format the response with emojis and Markdown styling
+        # Format the response with emojis and HTML styling
         response_message = (
             f"<b>MinHtet Bot BALANCE 💰:</b>\n\n"
             f"🇵🇭 <b>PH Balance</b>: <code>{balance_ph:.2f}</code> 🪙\n"
@@ -807,6 +807,10 @@ async def get_user_orders(update: Update, context: CallbackContext):
         player_db_entry = await users_collection.find_one({"user_id": str(player_id)})
         player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
 
+        balance_display_line = ""
+        if isinstance(remaining_balance, (int, float)):
+            balance_display_line = f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n"
+
         response_summary += (
             f"🆔 Telegram User: <b>{html.escape(player_display_name)}</b>\n" # Display user's username
             f"📍 Game ID: <code>{html.escape(str(player_id))}</code>\n" # Escape user ID
@@ -815,7 +819,7 @@ async def get_user_orders(update: Update, context: CallbackContext):
             f"🆔 Order ID: <code>{html.escape(str(order_ids))}</code>\n" # Escape order IDs
             f"📅 Date: {formatted_date}\n" # Use formatted_date
             f"💵 Rate: ${float(total_cost):.2f}\n"
-            f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" + # Display remaining balance
+            + balance_display_line + # Add remaining balance line
             f"🔄 Status: {html.escape(str(status))}\n\n"
         )
 
@@ -886,6 +890,9 @@ async def get_all_orders(update: Update, context: CallbackContext):
             player_db_entry = await users_collection.find_one({"user_id": str(player_id)})
             player_display_name = f"@{player_db_entry['username']}" if player_db_entry and player_db_entry.get('username') else str(player_id)
 
+            balance_display_line = ""
+            if isinstance(remaining_balance, (int, float)):
+                balance_display_line = f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n"
 
             response_summary += (
                 f"🆔 Sender: <b>{html.escape(sender_display_name)}</b> (ID: <code>{html.escape(str(sender_user_id))}</code>)\n"
@@ -895,7 +902,7 @@ async def get_all_orders(update: Update, context: CallbackContext):
                 f"🆔 Order IDs: <code>{html.escape(str(order_ids))}</code>\n"
                 f"📅 Date: {formatted_date}\n"
                 f"💵 Total Cost: ${float(total_cost):.2f}\n"
-                f"Initial Balance: ${float(remaining_balance):.2f} 🪙\n" if isinstance(remaining_balance, (int, float)) else "" + # Display remaining balance
+                + balance_display_line + # Add remaining balance line
                 f"🔄 Status: {html.escape(str(status))}\n\n"
             )
 
@@ -1166,23 +1173,23 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         # Check if the product name is valid
         product = product_info.get(product_name)
         if not product:
-            failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
-                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
-                f"<b>Results</b>: Invalid Product\n\n"
-            )
+            failed_orders.append({ # Append as dictionary for individual failed reports
+                "user_id": user_id_str,
+                "zone_id": zone_id,
+                "product_name": product_name,
+                "reason": "Invalid Product"
+            })
             continue
 
         # Determine the rate based on user type
         product_rate = product["rate"]
         if product_rate is None:
-            failed_orders.append(
-                f"<b>Game ID</b>: {html.escape(user_id_str)}\n" # Escape user ID
-                f"<b>Game Server</b>: {html.escape(zone_id)}\n" # Escape zone ID
-                f"<b>Items</b>: {html.escape(product_name)}\n" # Escape product name
-                f"<b>Results:</b> Product rate not available\n\n"
-            )
+            failed_orders.append({ # Append as dictionary for individual failed reports
+                "user_id": user_id_str,
+                "zone_id": zone_id,
+                "product_name": product_name,
+                "reason": "Product rate not available"
+            })
             continue
         order_requests.append({
             "user_id": user_id_str,
@@ -1193,14 +1200,14 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         })
 
     if not order_requests:
-        await loading_message.edit_text("No valid orders to process. Please Enter Valid Product Name")
+        await loading_message.edit_text("No valid orders to process. Please Enter Valid Product Name", parse_mode='HTML')
         return
 
     # Check if the user has sufficient balance for ALL orders first
     current_balance_dict = await get_balance(sender_user_id) # Get the full balance dictionary
     if current_balance_dict is None:
         print(f"[ERROR] Sender wallet balance not found for User ID: {sender_user_id}")
-        await loading_message.edit_text("Contact to @minhtet4604")
+        await loading_message.edit_text("Contact to @minhtet4604", parse_mode='HTML')
         return
     
     current_available_balance = current_balance_dict.get(balance_type, 0)
@@ -1212,7 +1219,8 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
     if current_available_balance < total_cost_for_all_valid_orders:
         print(f"[ERROR] Insufficient balance for User ID: {sender_user_id}. Required: {total_cost_for_all_valid_orders}, Available: {current_available_balance}")
         await loading_message.edit_text(
-            f"Not Enough Balance for all orders.\nAvailable Balance: {current_available_balance}\nTotal Required: {total_cost_for_all_valid_orders}"
+            f"Not Enough Balance for all orders.\nAvailable Balance: {current_available_balance}\nTotal Required: {total_cost_for_all_valid_orders}",
+            parse_mode='HTML'
         )
         return
 
@@ -1226,12 +1234,12 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
         current_balance_for_deduction = (await get_balance(sender_user_id)).get(balance_type, 0.0)
         
         if current_balance_for_deduction < order['product_rate']:
-            failed_orders.append(
-                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
-                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
-                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                f"<b>Results</b>: Insufficient Balance during processing (after initial check)\n\n"
-            )
+            failed_orders.append({ # Append as dictionary for individual failed reports
+                "user_id": order['user_id'],
+                "zone_id": order['zone_id'],
+                "product_name": order['product_name'],
+                "reason": "Insufficient Balance during processing (after initial check)"
+            })
             continue # Skip this order and move to the next
 
         # Store balance before deduction for this specific order
@@ -1244,12 +1252,12 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
 
         if new_balance_after_deduction is None:
             # If deduction failed (e.g., insufficient balance or other DB issue)
-            failed_orders.append(
-                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
-                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
-                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                f"<b>Results</b>: Balance Deduction Failed (e.g., Insufficient Balance)\n\n"
-            )
+            failed_orders.append({ # Append as dictionary for individual failed reports
+                "user_id": order['user_id'],
+                "zone_id": order['zone_id'],
+                "product_name": order['product_name'],
+                "reason": "Balance Deduction Failed (e.g., Insufficient Balance)"
+            })
             continue # Skip this order and move to the next
 
 
@@ -1262,12 +1270,12 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             order_id = result.get("order_id")
             if not order_id:
                 # Order creation failed for one of the product IDs on Smile One
-                failed_orders.append(
-                    f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
-                    f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
-                    f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                    f"<b>Results</b>: {html.escape(result.get('reason', 'Smile One Order creation failed'))}\n\n"
-                )
+                failed_orders.append({ # Append as dictionary for individual failed reports
+                    "user_id": order['user_id'],
+                    "zone_id": order['zone_id'],
+                    "product_name": order['product_name'],
+                    "reason": html.escape(result.get('reason', 'Smile One Order creation failed'))
+                })
                 order_failed_during_api_call = True
                 # Revert the balance deduction if any part of the order fails, UNLESS it's a SPECIAL_NON_REVERT_PACKAGE
                 if order['product_name'] not in SPECIAL_NON_REVERT_PACKAGES:
@@ -1299,12 +1307,12 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
             else:
                 logger.info(f"Balance NOT reverted for {order['product_name']} for user {sender_user_id} due to SPECIAL_NON_REVERT_PACKAGES rule.")
 
-            failed_orders.append(
-                f"<b>Game ID:</b> {html.escape(order['user_id'])}\n"
-                f"<b>Game Server:</b> {html.escape(order['zone_id'])}\n"
-                f"<b>Items</b>: {html.escape(order['product_name'])}\n"
-                f"<b>Results</b>: User ID not exist (failed role lookup)\n\n"
-            )
+            failed_orders.append({ # Append as dictionary for individual failed reports
+                "user_id": order['user_id'],
+                "zone_id": order['zone_id'],
+                "product_name": order['product_name'],
+                "reason": "User ID not exist (failed role lookup)"
+            })
             continue
 
         # Get the balance after successful processing (this is the true remaining balance)
@@ -1365,21 +1373,31 @@ async def bulk_command(update: Update, context: CallbackContext, region: str, pr
                 logger.error(f"Error sending individual report for order {order_ids_str}: {e}")
                 # Log error but continue to send other reports
 
-    # Send summary of failed orders (if any)
+    # Send individual reports for failed orders (if any)
     if failed_orders:
-        failed_summary_text = "\n<b>Failed Orders 🚫</b>:\n" + "".join(failed_orders)
-        try:
-            await update.message.reply_text(failed_summary_text, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"Error sending failed orders summary: {e}")
+        current_summary_time = datetime.now(ZoneInfo("Asia/Yangon")).strftime('%I:%M:%S %p %Y-%m-%d')
+        for failed_order_detail in failed_orders: # failed_orders now contains dictionaries
+            failed_report_text = (
+                f"======{region.upper()} Transaction Report======\n"
+                f"<b>Order Status    :  </b> Failed🚫\n"
+                f"<b>Game ID           :  </b> {html.escape(failed_order_detail.get('user_id', 'N/A'))}\n"
+                f"<b>Game Server    :  </b> {html.escape(failed_order_detail.get('zone_id', 'N/A'))}\n"
+                f"<b>Items                :  </b> {html.escape(failed_order_detail.get('product_name', 'N/A'))}\n"
+                f"<b>Reason            :  </b> {html.escape(failed_order_detail.get('reason', 'Unknown failure'))}\n"
+                f"<b>Time                  :  </b> {current_summary_time}\n\n"
+            )
+            try:
+                await update.message.reply_text(failed_report_text, parse_mode='HTML')
+            except Exception as e:
+                logger.error(f"Error sending individual failed report for {failed_order_detail.get('user_id', 'N/A')}: {e}")
             
     # Final message to user
     try:
         if order_summary or failed_orders:
-            # If any reports were sent, just update the loading message to indicate completion
-            await loading_message.edit_text("✅ All orders processed. Check new messages for reports.", parse_mode='HTML')
+            # If any reports (successful or failed) were sent, update loading message
+            await loading_message.edit_text("✅ All orders processed. Check new messages for individual reports.", parse_mode='HTML')
         else:
-            # If no orders were processed (e.g., initial checks failed before any orders)
+            # If no orders were processed at all (e.g., initial command parsing failed)
             await loading_message.edit_text("No orders were processed. Please check your command.", parse_mode='HTML')
     except Exception as e:
         logger.error(f"Error updating final loading message: {e}")
